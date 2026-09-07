@@ -157,16 +157,16 @@ static int vgpu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
     // dev->pdev = pdev;
     // platform_set_drvdata(pdev, dev);
 
-    // Map BAR0 for MMIO (AXI Lite registers)
+    // Map BAR0 for CSRs & BRAM (AXI Lite registers)
     // see page 292 of https://bootlin.com/doc/training/linux-kernel/linux-kernel-slides.pdf
     // pci_ioremap_bar() will read BAR0's physical address that was assigned during boot by pci subsystem from FPGA
     // and call void __iomem *ioremap(phys_addr_t phys_addr, unsigned long size);
     // and update the page table to add a mapping entry that maps a virtual memory region to physical memory region
-    // mmio_base is the pointer that points to the virtual memory address of BAR0 in kernel space
-    // writing data to mmio_base with offset can then trigger cpu to perform a Memory write TLP (Transaction Layer Packet)
+    // csr_base is the pointer that points to the virtual memory address of BAR0 in kernel space
+    // writing data to csr_base with offset can then trigger cpu to perform a Memory write TLP (Transaction Layer Packet)
     // to the XDMA IP in the FPGA, and FPGA will write data to the target memory-mapped register in FPGA.
-    dev->mmio_base = pci_ioremap_bar(pdev, 0);
-    if (!dev->mmio_base) {
+    dev->csr_base = pci_ioremap_bar(pdev, 0);
+    if (!dev->csr_base) {
         pr_err("vGPU-Core: failed to ioremap BAR0\n");
         result = -ENOMEM;
         goto err_free;
@@ -177,8 +177,8 @@ static int vgpu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
      * BAR1 is the Xilinx XDMA Configuration Space. We use this to program 
      * the internal DMA engine to transfer payloads to the FPGA DRAM.
      */
-    dev->xdma_base = pci_ioremap_bar(pdev, 1);
-    if (!dev->xdma_base) {
+    dev->dma_base = pci_ioremap_bar(pdev, 1);
+    if (!dev->dma_base) {
         pr_err("vGPU-Core: failed to ioremap BAR1 (XDMA Config)\n");
         result = -ENOMEM;
         goto err_iounmap_bar0;
@@ -209,7 +209,7 @@ static int vgpu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
     dev->irq_fired = 0;
 
     // see page 376 at https://bootlin.com/doc/training/linux-kernel/linux-kernel-slides.pdf
-    dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
+    dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
     
     // Note: The Ring Buffer itself is now mapped to FPGA BRAM (BAR0),
     // so we dont need to allocate Host RAM for the Ring Buffer.
@@ -243,7 +243,7 @@ static int vgpu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
      * When the Host CPU updates dev->ring->tail, it's actually sending a PCIe MMIO Write 
      * directly into the FPGA BRAM.
      */
-    dev->ring = (struct vgpu_ring_buffer *)(dev->mmio_base + VGPU_RING_OFFSET);
+    dev->ring = (struct vgpu_ring_buffer *)(dev->csr_base + VGPU_RING_OFFSET);
     // Note: Do not initialize head/tail to 0 here if the firmware has already started, 
     // but since we are probing, we reset them.
     iowrite32(0, &dev->ring->head);
@@ -289,7 +289,7 @@ static int vgpu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
         goto err_cdev;
     }
 
-    pr_info("vGPU-Core: vgpu%d probed successfully at MMIO %p\n", dev->minor, dev->mmio_base);
+    pr_info("vGPU-Core: vgpu%d probed successfully at CSR %p, DMA %p\n", dev->minor, dev->csr_base, dev->dma_base);
     return 0;
 
 err_cdev:
@@ -301,9 +301,9 @@ err_mem_pt:
     if (dev->desc_ring) dma_free_coherent(&pdev->dev, 8192 * sizeof(struct xdma_desc), dev->desc_ring, dev->desc_ring_dma_addr);
 err_mem:
 err_iounmap:
-    if (dev->xdma_base) pci_iounmap(pdev, dev->xdma_base);
+    if (dev->dma_base) pci_iounmap(pdev, dev->dma_base);
 err_iounmap_bar0:
-    if (dev->mmio_base) pci_iounmap(pdev, dev->mmio_base);
+    if (dev->csr_base) pci_iounmap(pdev, dev->csr_base);
 err_free:
     kfree(dev);
 err_regions:
@@ -331,8 +331,8 @@ static void vgpu_remove(struct pci_dev *pdev)
             dma_free_coherent(&pdev->dev, 8192 * sizeof(struct xdma_desc), dev->desc_ring, dev->desc_ring_dma_addr);
         }
 
-        if (dev->xdma_base) pci_iounmap(pdev, dev->xdma_base);
-        if (dev->mmio_base) pci_iounmap(pdev, dev->mmio_base);
+        if (dev->dma_base) pci_iounmap(pdev, dev->dma_base);
+        if (dev->csr_base) pci_iounmap(pdev, dev->csr_base);
 
         if (dev->irq) {
             /*

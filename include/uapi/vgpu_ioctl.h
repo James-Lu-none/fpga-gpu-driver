@@ -18,10 +18,29 @@
  */
 struct vgpu_command {
     __u32 opcode;         // 運算類型 (例如：1=相加, 2=相乘)
-    __u32 payload_size;   // Data size in bytes (e.g. 1048576 for 1MB)
-    __u64 payload_vaddr;  // User Space Virtual Address of the payload
+    __u32 grid_dim_x;     // Grid Dimension X (預設 32)
+    __u32 grid_dim_y;     // Grid Dimension Y (預設 1)
+    __u32 block_dim_x;    // Block Dimension X (預設 32)
+    __u32 block_dim_y;    // Block Dimension Y (預設 1)
+    __u64 dma_src_addr;   // FPGA DDR3 Source Address (例如 0x00000000)
+    __u64 dma_dst_addr;   // FPGA DDR3 Destination Address (例如 0x00100000)
+    __u32 num_elements;   // 向量運算元素數量
+    __u32 payload_size;   // 保留舊介面相容
+    __u64 payload_vaddr;  // 保留舊介面相容
 };
 
+/*
+ * 顯存 DMA 傳輸參數 (Host RAM <-> FPGA DDR3 VRAM)
+ */
+#define VGPU_DMA_TO_DEVICE   0 // Host -> FPGA DDR3 (H2C)
+#define VGPU_DMA_FROM_DEVICE 1 // FPGA DDR3 -> Host (C2H)
+
+struct vgpu_dma_param {
+    __u32 direction;     // VGPU_DMA_TO_DEVICE 或 VGPU_DMA_FROM_DEVICE
+    __u32 size;          // 傳輸長度 (bytes)
+    __u64 ddr3_addr;     // FPGA DDR3 AXI 目標位址 (例如 0x00000000)
+    __u64 host_vaddr;    // 使用者空間緩衝區指標 (uintptr_t)
+};
 
 // _IOW, _IOR, _IOWR, _IO 都是用來產生唯一 ioctl 指令碼的巨集
 // 這些巨集會把讀寫方向、資料大小、magic number和序號打包成一個 32-bit 的整數型態指令
@@ -40,23 +59,12 @@ struct vgpu_command {
 
 /* 
  * 定義 IOCTL 系統呼叫指令：
- * 
- * _IOW(magic, seq, type): 代表 User Space 要「寫入(Write)」資料到 Kernel。
- * 我們用這個指令把一個 vgpu_command 結構送到 Kernel 的 Ring Buffer 中。
  */
-#define VGPU_IOC_SUBMIT_CMD _IOW(VGPU_IOC_MAGIC, 1, struct vgpu_command)
-
-/*
- * _IO(magic, seq): 代表沒有資料要傳遞，只是一個「觸發訊號」。
- * 我們用這個指令來敲響門鈴，告訴虛擬硬體「有新任務囉，快去 Ring Buffer 拿！」。
- */
-#define VGPU_IOC_DOORBELL   _IO(VGPU_IOC_MAGIC,  2)
-
-/*
- * 等待虛擬硬體的 IRQ 中斷
- */
+#define VGPU_IOC_SUBMIT_CMD   _IOW(VGPU_IOC_MAGIC, 1, struct vgpu_command)
+#define VGPU_IOC_DOORBELL     _IO(VGPU_IOC_MAGIC,  2)
 #define VGPU_IOC_WAIT_FOR_IRQ _IO(VGPU_IOC_MAGIC, 3)
+#define VGPU_IOC_DMA_TRANSFER _IOW(VGPU_IOC_MAGIC, 4, struct vgpu_dma_param)
 
-#define VGPU_IOC_MAXNR 3
+#define VGPU_IOC_MAXNR 4
 
 #endif /* _VGPU_IOCTL_H */

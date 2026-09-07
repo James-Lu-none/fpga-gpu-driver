@@ -18,7 +18,7 @@
 #include <linux/scatterlist.h>
 #include "../uapi/vgpu_ioctl.h"
 
-#define VGPU_RING_OFFSET 0x0001_8000 // Direct BAR0 BRAM Ring Buffer Offset (about 32KB)
+#define VGPU_RING_OFFSET 0x00018000 // Direct BAR0 BRAM Ring Buffer Offset (about 32KB)
 #define QUEUE_SIZE 512 // size of cuda_task_descriptor is 64 bytes, 32KB/64 = 512
 
 /*
@@ -29,8 +29,16 @@
  * MMIO (CPU writes) is extremely slow. DMA offloads this to hardware.
  */
 #define XDMA_H2C_CHAN0_CTRL   0x0004 // H2C Channel 0 Control Register (Write 1 to Run)
-#define XDMA_H2C_CHAN0_SG_LO  0x0080 // H2C Channel 0 Scatter-Gather First Descriptor Address Low (32-bit)
-#define XDMA_H2C_CHAN0_SG_HI  0x0084 // H2C Channel 0 Scatter-Gather First Descriptor Address High (32-bit)
+#define XDMA_H2C_CHAN0_STATUS 0x0040 // H2C Channel 0 Status Register (Bit 0: Busy)
+#define XDMA_H2C_CHAN0_SG_LO  0x4080 // H2C Channel 0 SGDMA First Descriptor Address Low (0x4000 + 0x80)
+#define XDMA_H2C_CHAN0_SG_HI  0x4084 // H2C Channel 0 SGDMA First Descriptor Address High (0x4000 + 0x84)
+#define XDMA_H2C_CHAN0_SG_ADJ 0x4088 // H2C Channel 0 SGDMA Adjacent Descriptors
+
+#define XDMA_C2H_CHAN0_CTRL   0x1004 // C2H Channel 0 Control Register (Write 1 to Run)
+#define XDMA_C2H_CHAN0_STATUS 0x1040 // C2H Channel 0 Status Register (Bit 0: Busy)
+#define XDMA_C2H_CHAN0_SG_LO  0x5080 // C2H Channel 0 SGDMA First Descriptor Address Low (0x5000 + 0x80)
+#define XDMA_C2H_CHAN0_SG_HI  0x5084 // C2H Channel 0 SGDMA First Descriptor Address High (0x5000 + 0x84)
+#define XDMA_C2H_CHAN0_SG_ADJ 0x5088 // C2H Channel 0 SGDMA Adjacent Descriptors
 
 /*
  * CUDA Task Descriptor Structure (64-byte aligned)
@@ -97,8 +105,8 @@ struct vgpu_dev {
     struct cdev cdev;
     struct device *device;
     struct pci_dev *pci_dev;
-    void __iomem *mmio_base; // Mapped PCIe BAR0 (AXI-Lite to BRAM & GPU Engine)
-    void __iomem *xdma_base; // Mapped PCIe BAR1 (XDMA Config Registers)
+    void __iomem *csr_base;  // Mapped PCIe BAR0 (AXI-Lite to BRAM & GPU Control Registers)
+    void __iomem *dma_base;  // Mapped PCIe BAR1 (XDMA Config & Status Registers)
     int irq;                 // The IRQ number allocated by the PCI subsystem for this device
 
     struct vgpu_ring_buffer *ring; // Points to ring_buffer (used as global queue)

@@ -4,105 +4,146 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
     struct vgpu_context *ctx = file->private_data;
     struct vgpu_dev *dev = ctx->dev;
-    struct vgpu_command user_cmd;
     
     if (_IOC_TYPE(cmd) != VGPU_IOC_MAGIC) return -ENOTTY;
     if (_IOC_NR(cmd) > VGPU_IOC_MAXNR) return -ENOTTY;
 
     switch (cmd) {
-        case VGPU_IOC_SUBMIT_CMD:
-            if (copy_from_user(&user_cmd, (struct vgpu_command __user *)arg, sizeof(user_cmd))) {
+        case VGPU_IOC_DMA_TRANSFER: {
+            struct vgpu_dma_param dma_param;
+            int num_pages, i;
+            u32 chan_ctrl, chan_status, chan_sg_lo, chan_sg_hi, chan_sg_adj;
+            enum dma_data_direction dma_dir;
+            unsigned int gup_flags;
+            u64 cur_ddr3;
+            struct scatterlist *sg;
+            int timeout;
+
+            if (copy_from_user(&dma_param, (struct vgpu_dma_param __user *)arg, sizeof(dma_param))) {
                 return -EFAULT;
             }
 
-            if (user_cmd.payload_size > 0 && user_cmd.payload_vaddr != 0) {
-                /*
-                 * Unified Memory: Demand Paging (Software Page Table)
-                 * We use get_user_pages_fast to pin the User Space virtual memory pages
-                 * into physical RAM, ensuring they aren't swapped out during DMA.
-                 */
-                int num_pages = (user_cmd.payload_size + PAGE_SIZE - 1) / PAGE_SIZE;
-                if (num_pages > 8192) return -EINVAL; // Max 32MB for our demo
-                
-                dev->num_pinned_pages = get_user_pages_fast(user_cmd.payload_vaddr, num_pages, 
-                                                            FOLL_WRITE, dev->pinned_pages);
-                if (dev->num_pinned_pages < 0) {
-                    pr_err("vGPU-Core: get_user_pages_fast failed\n");
-                    return dev->num_pinned_pages;
-                }
-                
-                /*
-                 * Scatter-Gather DMA Mapping
-                 * We map the pinned pages for DMA, obtaining physical bus addresses.
-                 */
-                dev->sgl = kmalloc_array(dev->num_pinned_pages, sizeof(struct scatterlist), GFP_KERNEL);
-                if (!dev->sgl) return -ENOMEM;
-                
-                sg_init_table(dev->sgl, dev->num_pinned_pages);
-                for (int i = 0; i < dev->num_pinned_pages; i++) {
-                    sg_set_page(&dev->sgl[i], dev->pinned_pages[i], PAGE_SIZE, 0);
-                }
-                
-                dev->sgl_nents = dma_map_sg(&dev->pci_dev->dev, dev->sgl, dev->num_pinned_pages, DMA_BIDIRECTIONAL);
-                if (dev->sgl_nents == 0) {
-                    pr_err("vGPU-Core: dma_map_sg failed\n");
-                    kfree(dev->sgl);
-                    dev->sgl = NULL;
-                    return -ENOMEM;
-                }
-                
-                /* 
-                 * Build XDMA Descriptor Chain
-                 * We construct the Scatter-Gather descriptors exactly as the Xilinx XDMA IP expects.
-                 */
-                struct scatterlist *sg;
-                int i;
-                for_each_sg(dev->sgl, sg, dev->sgl_nents, i) {
-                    dev->desc_ring[i].src_addr = sg_dma_address(sg);
-                    dev->desc_ring[i].dst_addr = 0x0;
-                    dev->desc_ring[i].bytes    = sg_dma_len(sg);
-                    dev->desc_ring[i].control  = XDMA_DESC_MAGIC;
-                    // point to the next descriptor in the host
-                    if (i < dev->sgl_nents - 1) {
-                        dev->desc_ring[i].next_desc = dev->desc_ring_dma_addr + (i + 1) * sizeof(struct xdma_desc);
-                    } else {
-                        dev->desc_ring[i].next_desc = 0;
-                        dev->desc_ring[i].control  |= XDMA_DESC_EOP; 
-                    }
-                }
-                
-                /*
-                 * Start XDMA Host-to-Card (H2C) Transfer
-                 * We write the address of our descriptor ring to the XDMA Config BAR (BAR1).
-                 * This initiates the DMA engine on the FPGA, pulling data from Host RAM to FPGA DRAM.
-                 */
-                iowrite32(lower_32_bits(dev->desc_ring_dma_addr), dev->xdma_base + XDMA_H2C_CHAN0_SG_LO);
-                iowrite32(upper_32_bits(dev->desc_ring_dma_addr), dev->xdma_base + XDMA_H2C_CHAN0_SG_HI);
-                iowrite32(1, dev->xdma_base + XDMA_H2C_CHAN0_CTRL); // 1 = Run
-                
-                // For simplicity in this demo, we wait for XDMA to finish synchronously.
-                // In a production environment, this should be interrupt-driven.
-                // Status register is at 0x0040. Bit 0 is Busy.
-                while ((ioread32(dev->xdma_base + 0x0040) & 1) != 0) {
-                    cpu_relax();
-                }
-                iowrite32(0, dev->xdma_base + XDMA_H2C_CHAN0_CTRL); // Stop
-                
-                /*
-                 * Unified Memory: Teardown
-                 * Since the XDMA has successfully copied the data into the FPGA's DRAM,
-                 * we no longer need to keep the Host pages pinned! We can unmap them immediately.
-                 * This is a massive advantage: User Space memory isn't locked while the GPU computes.
-                 */
-                if (dev->sgl) {
-                    dma_unmap_sg(&dev->pci_dev->dev, dev->sgl, dev->num_pinned_pages, DMA_BIDIRECTIONAL);
-                    kfree(dev->sgl);
-                    dev->sgl = NULL;
-                }
-                for (int j = 0; j < dev->num_pinned_pages; j++) {
-                    put_page(dev->pinned_pages[j]);
-                }
+            if (dma_param.size == 0 || dma_param.host_vaddr == 0) {
+                return -EINVAL;
+            }
+            if (dma_param.size > 32 * 1024 * 1024) { // 單次最大支援 32MB
+                return -EINVAL;
+            }
+
+            num_pages = (dma_param.size + PAGE_SIZE - 1) / PAGE_SIZE;
+            if (num_pages > 8192) return -EINVAL;
+
+            if (dma_param.direction == VGPU_DMA_TO_DEVICE) {
+                chan_ctrl   = XDMA_H2C_CHAN0_CTRL;
+                chan_status = XDMA_H2C_CHAN0_STATUS;
+                chan_sg_lo  = XDMA_H2C_CHAN0_SG_LO;
+                chan_sg_hi  = XDMA_H2C_CHAN0_SG_HI;
+                chan_sg_adj = XDMA_H2C_CHAN0_SG_ADJ;
+                dma_dir     = DMA_TO_DEVICE;
+                gup_flags   = 0;
+            } else if (dma_param.direction == VGPU_DMA_FROM_DEVICE) {
+                chan_ctrl   = XDMA_C2H_CHAN0_CTRL;
+                chan_status = XDMA_C2H_CHAN0_STATUS;
+                chan_sg_lo  = XDMA_C2H_CHAN0_SG_LO;
+                chan_sg_hi  = XDMA_C2H_CHAN0_SG_HI;
+                chan_sg_adj = XDMA_C2H_CHAN0_SG_ADJ;
+                dma_dir     = DMA_FROM_DEVICE;
+                gup_flags   = FOLL_WRITE;
+            } else {
+                return -EINVAL;
+            }
+
+            // Pin user pages in RAM
+            dev->num_pinned_pages = get_user_pages_fast(dma_param.host_vaddr, num_pages, 
+                                                        gup_flags, dev->pinned_pages);
+            if (dev->num_pinned_pages < 0) {
+                pr_err("vGPU-Core: get_user_pages_fast failed: %d\n", dev->num_pinned_pages);
+                return dev->num_pinned_pages;
+            }
+
+            dev->sgl = kmalloc_array(dev->num_pinned_pages, sizeof(struct scatterlist), GFP_KERNEL);
+            if (!dev->sgl) {
+                for (i = 0; i < dev->num_pinned_pages; i++) put_page(dev->pinned_pages[i]);
                 dev->num_pinned_pages = 0;
+                return -ENOMEM;
+            }
+
+            sg_init_table(dev->sgl, dev->num_pinned_pages);
+            for (i = 0; i < dev->num_pinned_pages; i++) {
+                sg_set_page(&dev->sgl[i], dev->pinned_pages[i], PAGE_SIZE, 0);
+            }
+
+            dev->sgl_nents = dma_map_sg(&dev->pci_dev->dev, dev->sgl, dev->num_pinned_pages, dma_dir);
+            if (dev->sgl_nents == 0) {
+                pr_err("vGPU-Core: dma_map_sg failed\n");
+                kfree(dev->sgl);
+                dev->sgl = NULL;
+                for (i = 0; i < dev->num_pinned_pages; i++) put_page(dev->pinned_pages[i]);
+                dev->num_pinned_pages = 0;
+                return -ENOMEM;
+            }
+
+            // Build XDMA Descriptor Chain
+            cur_ddr3 = dma_param.ddr3_addr;
+            for_each_sg(dev->sgl, sg, dev->sgl_nents, i) {
+                u32 len = sg_dma_len(sg);
+                if (dma_param.direction == VGPU_DMA_TO_DEVICE) {
+                    dev->desc_ring[i].src_addr = sg_dma_address(sg);
+                    dev->desc_ring[i].dst_addr = cur_ddr3;
+                } else {
+                    dev->desc_ring[i].src_addr = cur_ddr3;
+                    dev->desc_ring[i].dst_addr = sg_dma_address(sg);
+                }
+                cur_ddr3 += len;
+                dev->desc_ring[i].bytes    = len;
+                dev->desc_ring[i].control  = XDMA_DESC_MAGIC;
+
+                if (i < dev->sgl_nents - 1) {
+                    dev->desc_ring[i].next_desc = dev->desc_ring_dma_addr + (i + 1) * sizeof(struct xdma_desc);
+                } else {
+                    dev->desc_ring[i].next_desc = 0;
+                    dev->desc_ring[i].control  |= XDMA_DESC_EOP; 
+                }
+            }
+
+            // Start XDMA Transfer
+            iowrite32(lower_32_bits(dev->desc_ring_dma_addr), dev->dma_base + chan_sg_lo);
+            iowrite32(upper_32_bits(dev->desc_ring_dma_addr), dev->dma_base + chan_sg_hi);
+            iowrite32(0, dev->dma_base + chan_sg_adj);
+            iowrite32(1, dev->dma_base + chan_ctrl); // Run
+
+            // Synchronous wait for completion with timeout
+            timeout = 10000000;
+            while ((ioread32(dev->dma_base + chan_status) & 1) != 0 && --timeout > 0) {
+                cpu_relax();
+            }
+            iowrite32(0, dev->dma_base + chan_ctrl); // Stop
+
+            // Teardown & Unmap
+            dma_unmap_sg(&dev->pci_dev->dev, dev->sgl, dev->num_pinned_pages, dma_dir);
+            kfree(dev->sgl);
+            dev->sgl = NULL;
+
+            for (i = 0; i < dev->num_pinned_pages; i++) {
+                if (dma_param.direction == VGPU_DMA_FROM_DEVICE) {
+                    set_page_dirty_lock(dev->pinned_pages[i]);
+                }
+                put_page(dev->pinned_pages[i]);
+            }
+            dev->num_pinned_pages = 0;
+
+            if (timeout == 0) {
+                pr_err("vGPU-Core: DMA transfer timed out!\n");
+                return -ETIMEDOUT;
+            }
+            break;
+        }
+        
+        case VGPU_IOC_SUBMIT_CMD: {
+            struct vgpu_command user_cmd;
+
+            if (copy_from_user(&user_cmd, (struct vgpu_command __user *)arg, sizeof(user_cmd))) {
+                return -EFAULT;
             }
 
             if (queue_mode == 0) {
@@ -121,26 +162,24 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 }
                 
                 /* 
-                 * Build Hardware Task Descriptor
-                 * This is the payload the PicoRV32 firmware actually understands.
+                 * Build Hardware Task Descriptor (64 bytes)
+                 * Direct mapped to PicoRV32's cuda_task_descriptor_t
                  */
                 struct cuda_task_descriptor task = {};
                 task.magic        = 0x43554441; /* "CUDA" */
                 task.opcode       = user_cmd.opcode;
-                task.grid_dim_x   = 32;
-                task.block_dim_x  = 32;
-                task.num_elements = user_cmd.payload_size / sizeof(u64);
-                
-                // Because XDMA already copied the data to FPGA DRAM Address 0x0,
-                // we tell the GPU Engine to fetch from Address 0x0 (Local memory), not Host memory!
-                task.src_dma_addr = 0x0;
+                task.grid_dim_x   = user_cmd.grid_dim_x ? user_cmd.grid_dim_x : 32;
+                task.grid_dim_y   = user_cmd.grid_dim_y ? user_cmd.grid_dim_y : 1;
+                task.block_dim_x  = user_cmd.block_dim_x ? user_cmd.block_dim_x : 32;
+                task.block_dim_y  = user_cmd.block_dim_y ? user_cmd.block_dim_y : 1;
+                task.src_dma_addr = user_cmd.dma_src_addr;
+                task.dst_dma_addr = user_cmd.dma_dst_addr;
+                task.num_elements = user_cmd.num_elements;
 
-                // Write the task directly into the BRAM Ring Buffer
+                // Write the 64-byte task directly into BRAM Ring Buffer via CSR MMIO
                 memcpy_toio(&dev->ring->cmds[tail], &task, sizeof(task));
                 
-                // Update tail pointer in BRAM.
-                // The PicoRV32 Firmware (polling the tail pointer) will notice this 
-                // and fetch the task automatically. No explicit Doorbell needed!
+                // Update tail pointer in BRAM. PicoRV32 polls this pointer.
                 iowrite32((tail + 1) % QUEUE_SIZE, &dev->ring->tail);
                 
                 spin_unlock(&dev->global_lock);
@@ -149,27 +188,20 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 return -ENOTSUPP;
             }
             break;
+        }
 
         case VGPU_IOC_DOORBELL:
-            /*
-             * VGPU_IOC_DOORBELL is repurposed as a "Wait for Completion" signal.
-             * Instead of relying on a hardware IRQ (which historically required the PicoRV32 
-             * to crash/trap to signal the host), we simply poll the 'head' pointer in BRAM.
-             * When head == tail, it means the GPU has finished all tasks in the queue.
-             */
-            pr_info("vGPU-Core: Waiting for GPU to finish all tasks in queue...\n");
-
             if (queue_mode == 0) {
                 u32 tail = ioread32(&dev->ring->tail);
+                int timeout = 5000000;
                 
-                // Poll the head pointer updated by PicoRV32
-                while (ioread32(&dev->ring->head) != tail) {
-                    // In a production driver, we would use a timeout or yield the CPU here
-                    // to prevent locking up the system if the GPU hangs.
-                    schedule(); // Yield CPU to other tasks while waiting
+                while (ioread32(&dev->ring->head) != tail && --timeout > 0) {
+                    schedule();
                 }
-                
-                pr_info("vGPU-Core: All GPU tasks completed successfully!\n");
+                if (timeout == 0) {
+                    pr_err("vGPU-Core: Wait for completion timeout!\n");
+                    return -ETIMEDOUT;
+                }
             } else {
                 pr_err("vGPU-Core: Private queue mode currently unsupported\n");
                 return -ENOTSUPP;
