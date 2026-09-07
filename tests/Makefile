@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -Wall -O2
 
-all: test_ioctl test_interrupt
+all: test_ioctl test_interrupt test_dma
 
 test_ioctl: test_ioctl.c
 	$(CC) $(CFLAGS) $< -o $@ -pthread
@@ -9,5 +9,8 @@ test_ioctl: test_ioctl.c
 test_interrupt: test_interrupt.c
 	$(CC) $(CFLAGS) $< -o $@
 
+test_dma: test_dma.c
+	$(CC) $(CFLAGS) $< -o $@
+
 clean:
-	rm -f test_ioctl test_interrupt
+	rm -f test_ioctl test_interrupt test_dma
