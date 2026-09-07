@@ -54,11 +54,11 @@ sudo ./tests/test_interrupt
 ## 
 
 ```bash
-user@bastion:~/workspace$ sudo lspci -vvv -nn -s 00:01.0
+user@testbench:~/workspace/fpga-gpu-driver$ sudo lspci -vvv -nn -s 00:01.0
 00:01.0 PCI bridge [0604]: Intel Corporation Device [8086:4c01] (rev 01) (prog-if 00 [Normal decode])
         Subsystem: ASUSTeK Computer Inc. Device [1043:8694]
         Control: I/O+ Mem+ BusMaster+ SpecCycle- MemWINV- VGASnoop- ParErr- Stepping- SERR- FastB2B- DisINTx+
-        Status: Cap+ 66MHz- UDF- FastB2B- ParErr- DEVSEL=fast >TAbort- <TAbort- <MAbort- >SERR- <PERR- INTx-
+        Status: Cap+ 66MHz- UDF- FastB2B- ParErr- DEVSEL=fast >TAbort- <TAbort- <MAbort+ >SERR- <PERR- INTx-
         Latency: 0, Cache Line Size: 64 bytes
         Interrupt: pin ? routed to IRQ 121
         IOMMU group: 1
@@ -153,4 +153,5 @@ user@bastion:~/workspace$ sudo lspci -vvv -nn -s 00:01.0
         Capabilities: [a9c v1] Physical Layer 16.0 GT/s <?>
         Capabilities: [edc v1] Lane Margining at the Receiver <?>
         Kernel driver in use: pcieport
+
 ```
