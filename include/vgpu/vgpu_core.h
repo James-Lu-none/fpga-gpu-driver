@@ -69,6 +69,7 @@ struct cuda_task_descriptor {
 struct vgpu_ring_buffer {
     volatile u32 head; /* Updated by FPGA (Consumer) */
     volatile u32 tail; /* Updated by CPU Host (Producer) */
+    u32 reserved[14];  /* 56 bytes padding to align cmds to 64 bytes */
     struct cuda_task_descriptor cmds[QUEUE_SIZE];
 };
 
