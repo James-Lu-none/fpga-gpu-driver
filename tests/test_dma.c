@@ -139,6 +139,16 @@ int main(int argc, char **argv) {
         printf("SUCCESS\n");
     }
 
+    printf("Waiting for PicoRV32/GPU task completion via VGPU_IOC_DOORBELL... ");
+    fflush(stdout);
+
+    if (ioctl(fd, VGPU_IOC_DOORBELL, 0) < 0) {
+        perror("FAILED (VGPU_IOC_DOORBELL)");
+        failed++;
+    } else {
+        printf("SUCCESS (Completed by PicoRV32!)\n");
+    }
+
     if (failed == 0) {
         printf("ALL TESTS PASSED\n");
     } else {
