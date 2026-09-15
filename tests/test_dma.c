@@ -105,6 +105,12 @@ int main(int argc, char **argv) {
     }
 
     printf("Successfully opened %s (fd=%d)\n", VGPU_DEVICE, fd);
+
+    struct vgpu_version_info ver = {0};
+    if (ioctl(fd, VGPU_IOC_GET_VERSION, &ver) == 0) {
+        printf("FPGA Bitstream Version: 0x%08X (Magic: 0x%08X)\n", ver.hw_version, ver.hw_magic);
+    }
+
     printf("[Phase 1] Testing DDR3 VRAM DMA Transfers via VGPU_IOC_DMA_TRANSFER...\n");
 
     int failed = 0;

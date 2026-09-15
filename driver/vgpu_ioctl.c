@@ -208,6 +208,15 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             }
             break;
 
+        case VGPU_IOC_GET_VERSION: {
+            struct vgpu_version_info info;
+            info.hw_magic   = ioread32(dev->csr_base + 0x2000C);
+            info.hw_version = ioread32(dev->csr_base + 0x20008);
+            if (copy_to_user((void __user *)arg, &info, sizeof(info)))
+                return -EFAULT;
+            break;
+        }
+
         default:
             return -ENOTTY;
     }

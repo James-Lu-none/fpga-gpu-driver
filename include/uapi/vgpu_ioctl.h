@@ -57,6 +57,11 @@ struct vgpu_dma_param {
 // Kernel 會自動用 access_ok() 去檢查 User Space 傳來的指標 (arg) 所指向的記憶體位址，往後推 16 bytes 的範圍內，是不是合法且可讀取的 User 記憶體。
 // 如果 User Space 亂傳一個記憶體位址，或者指標指到的空間根本不夠 16 bytes，Kernel 在非常早期就能攔截這個錯誤（回傳 -EFAULT），防止 Kernel 被 User 搞到當機。
 
+struct vgpu_version_info {
+    __u32 hw_magic;    // FPGA Hardware Magic (e.g. 0x56475055 "VGPU")
+    __u32 hw_version;  // FPGA Bitstream Version (YYYYMMDD, e.g. 0x20260915)
+};
+
 /* 
  * 定義 IOCTL 系統呼叫指令：
  */
@@ -64,7 +69,8 @@ struct vgpu_dma_param {
 #define VGPU_IOC_DOORBELL     _IO(VGPU_IOC_MAGIC,  2)
 #define VGPU_IOC_WAIT_FOR_IRQ _IO(VGPU_IOC_MAGIC, 3)
 #define VGPU_IOC_DMA_TRANSFER _IOW(VGPU_IOC_MAGIC, 4, struct vgpu_dma_param)
+#define VGPU_IOC_GET_VERSION  _IOR(VGPU_IOC_MAGIC, 5, struct vgpu_version_info)
 
-#define VGPU_IOC_MAXNR 4
+#define VGPU_IOC_MAXNR 5
 
 #endif /* _VGPU_IOCTL_H */
