@@ -125,14 +125,14 @@ int main(int argc, char **argv) {
     printf("[Phase 2] Testing BRAM Ring Buffer via VGPU_IOC_SUBMIT_CMD...\n");
 
     struct vgpu_command cmd = {
-        .opcode       = 1,          // e.g. Vector Add
-        .grid_dim_x   = 32,
+        .opcode       = 0,          // Opcode 0: Ring Buffer Probe (NOP/Exit)
+        .grid_dim_x   = 1,
         .grid_dim_y   = 1,
         .block_dim_x  = 32,
         .block_dim_y  = 1,
-        .dma_src_addr = 0x00000000, // Data in DDR3 VRAM
-        .dma_dst_addr = 0x00100000, // Output in DDR3 VRAM
-        .num_elements = 1024,
+        .dma_src_addr = 0x00000000,
+        .dma_dst_addr = 0x00000000,
+        .num_elements = 32,
     };
 
     printf("Submitting task descriptor to PicoRV32 BRAM Ring Buffer... ");
