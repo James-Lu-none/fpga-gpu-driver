@@ -58,8 +58,8 @@ struct vgpu_dma_param {
 // 如果 User Space 亂傳一個記憶體位址，或者指標指到的空間根本不夠 16 bytes，Kernel 在非常早期就能攔截這個錯誤（回傳 -EFAULT），防止 Kernel 被 User 搞到當機。
 
 struct vgpu_version_info {
-    __u32 hw_magic;    // FPGA Hardware Magic (e.g. 0x56475055 "VGPU")
-    __u32 hw_version;  // FPGA Bitstream Version (YYYYMMDD, e.g. 0x20260915)
+    __u32 major_version;  // FPGA Bitstream Major Version (e.g. 1)
+    __u32 minor_version;  // FPGA Bitstream Minor Version (e.g. 0)
 };
 
 /* 

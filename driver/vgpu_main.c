@@ -289,10 +289,10 @@ static int vgpu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
         goto err_cdev;
     }
 
-    u32 hw_magic = ioread32(dev->csr_base + 0x2000C);
-    u32 hw_ver   = ioread32(dev->csr_base + 0x20008);
-    pr_info("vGPU-Core: vgpu%d probed successfully at CSR %p, DMA %p (HW Magic: 0x%08X, Version: 0x%08X)\n",
-            dev->minor, dev->csr_base, dev->dma_base, hw_magic, hw_ver);
+    u32 hw_major = ioread32(dev->csr_base + 0x20008);
+    u32 hw_minor = ioread32(dev->csr_base + 0x2000C);
+    pr_info("vGPU-Core: vgpu%d probed successfully at CSR %p, DMA %p (HW Version: v%u.%u)\n",
+            dev->minor, dev->csr_base, dev->dma_base, hw_major, hw_minor);
     return 0;
 
 err_cdev:
