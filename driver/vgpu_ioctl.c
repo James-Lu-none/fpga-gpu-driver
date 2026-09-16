@@ -5,8 +5,8 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
     struct vgpu_context *ctx = file->private_data;
     struct vgpu_dev *dev = ctx->dev;
     
-    if (_IOC_TYPE(cmd) != VGPU_IOC_MAGIC) return -ENOTTY;
-    if (_IOC_NR(cmd) > VGPU_IOC_MAXNR) return -ENOTTY;
+    if (_IOC_TYPE(cmd) != FPGAGPU_IOC_MAGIC && _IOC_TYPE(cmd) != 'V') return -ENOTTY;
+    if (_IOC_NR(cmd) > FPGAGPU_IOC_MAXNR) return -ENOTTY;
 
     switch (cmd) {
         case VGPU_IOC_DMA_TRANSFER: {
@@ -165,8 +165,8 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                  * Build Hardware Task Descriptor (64 bytes)
                  * Direct mapped to PicoRV32's cuda_task_descriptor_t
                  */
-                struct cuda_task_descriptor task = {};
-                task.magic        = 0x43554441; /* "CUDA" */
+                struct fpgagpu_dispatch_packet task = {};
+                task.magic        = FPGAGPU_MAGIC_OCL; /* "OCL1" */
                 task.opcode       = user_cmd.opcode;
                 task.grid_dim_x   = user_cmd.grid_dim_x ? user_cmd.grid_dim_x : 32;
                 task.grid_dim_y   = user_cmd.grid_dim_y ? user_cmd.grid_dim_y : 1;
@@ -214,6 +214,62 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             info.minor_version = ioread32(dev->csr_base + 0x2000C);
             if (copy_to_user((void __user *)arg, &info, sizeof(info)))
                 return -EFAULT;
+            break;
+        }
+
+        case VGPU_IOC_LOAD_KERNEL: {
+            struct vgpu_kernel_binary kbin;
+            u32 __user *u_code;
+            void __iomem *staging;
+            u32 head, tail, target_tail;
+            int i, timeout;
+
+            if (copy_from_user(&kbin, (struct vgpu_kernel_binary __user *)arg, sizeof(kbin)))
+                return -EFAULT;
+
+            if (kbin.instr_size == 0 || kbin.instr_size > 1024)
+                return -EINVAL;
+
+            u_code = (u32 __user *)kbin.user_instr_ptr;
+            staging = dev->csr_base + VGPU_KERNEL_STAGING_OFFSET;
+
+            // Copy instructions word-by-word into BRAM Staging Buffer
+            for (i = 0; i < kbin.instr_size; i++) {
+                u32 word;
+                if (get_user(word, &u_code[i]))
+                    return -EFAULT;
+                iowrite32(word, staging + (i * 4));
+            }
+
+            spin_lock(&dev->global_lock);
+            head = ioread32(&dev->ring->head);
+            tail = ioread32(&dev->ring->tail);
+
+            if ((tail + 1) % QUEUE_SIZE == head) {
+                spin_unlock(&dev->global_lock);
+                return -EBUSY;
+            }
+
+            struct fpgagpu_dispatch_packet task = {};
+            task.magic        = FPGAGPU_MAGIC_OCL; /* "OCL1" */
+            task.opcode       = VGPU_OPCODE_LOAD_KERNEL;
+            task.num_elements = kbin.instr_size;
+            task.task_id      = kbin.kernel_id;
+
+            memcpy_toio(&dev->ring->cmds[tail], &task, sizeof(task));
+            target_tail = (tail + 1) % QUEUE_SIZE;
+            iowrite32(target_tail, &dev->ring->tail);
+            spin_unlock(&dev->global_lock);
+
+            // Synchronously wait for PicoRV32 to finish loading into GPU I-RAM
+            timeout = 1000000;
+            while (ioread32(&dev->ring->head) != target_tail && --timeout > 0) {
+                cpu_relax();
+            }
+            if (timeout == 0) {
+                pr_err("vGPU-Core: Dynamic kernel load timed out!\n");
+                return -ETIMEDOUT;
+            }
             break;
         }
 
