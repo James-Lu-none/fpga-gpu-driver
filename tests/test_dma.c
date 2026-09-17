@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <sys/ioctl.h>
-#include "../include/uapi/vgpu_ioctl.h"
+#include "../include/uapi/fpgagpu_ioctl.h"
 
 #define VGPU_DEVICE "/dev/vgpu0"
 
