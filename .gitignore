@@ -6,6 +6,7 @@
 *.mod
 *.mod.c
 *.mod.o
+*.so
 
 # =========================================================================
 # Kbuild / Build System Artifacts
@@ -43,3 +44,6 @@ test_mmap
 test_interrupt
 test_dma
 test_compute
+test_opencl_vector_add
+test_opencl_matmul
+test_opencl_buffer_copy
