@@ -68,7 +68,7 @@ struct fpgagpu_ring_buffer {
     struct fpgagpu_dispatch_packet cmds[QUEUE_SIZE];
 };
 
-#define vgpu_ring_buffer fpgagpu_ring_buffer
+#define fpgagpu_ring_buffer fpgagpu_ring_buffer
 
 extern int queue_mode;
 
@@ -80,7 +80,7 @@ struct fpgagpu_context {
     struct list_head list_node;
 };
 
-#define vgpu_context fpgagpu_context
+#define fpgagpu_context fpgagpu_context
 
 /*
  * XDMA Hardware Descriptor Format (32-byte aligned)
@@ -126,24 +126,24 @@ struct fpgagpu_dev {
     int sgl_nents;
 };
 
-#define vgpu_dev fpgagpu_dev
+#define fpgagpu_dev fpgagpu_dev
 #define MAX_FPGAGPU_DEVICES 4
-#define MAX_VGPU_DEVICES MAX_FPGAGPU_DEVICES
+#define MAX_fpgagpu_DEVICES MAX_FPGAGPU_DEVICES
 
 extern struct class *g_fpgagpu_class;
-#define g_vgpu_class g_fpgagpu_class
+#define g_fpgagpu_class g_fpgagpu_class
 
 long fpgagpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
 int fpgagpu_mmap(struct file *file, struct vm_area_struct *vma);
 void fpgagpu_hw_work_func(struct work_struct *work);
 irqreturn_t fpgagpu_irq_handler(int irq, void *dev_id);
 
-#define vgpu_ioctl fpgagpu_ioctl
-#define vgpu_mmap fpgagpu_mmap
-#define vgpu_hw_work_func fpgagpu_hw_work_func
-#define vgpu_irq_handler fpgagpu_irq_handler
+#define fpgagpu_ioctl fpgagpu_ioctl
+#define fpgagpu_mmap fpgagpu_mmap
+#define fpgagpu_hw_work_func fpgagpu_hw_work_func
+#define fpgagpu_irq_handler fpgagpu_irq_handler
 
-#define VGPU_KERNEL_STAGING_OFFSET FPGAGPU_KERNEL_STAGING_OFFSET
-#define VGPU_RING_OFFSET           FPGAGPU_RING_OFFSET
+#define fpgagpu_KERNEL_STAGING_OFFSET FPGAGPU_KERNEL_STAGING_OFFSET
+#define fpgagpu_RING_OFFSET           FPGAGPU_RING_OFFSET
 
 #endif /* _FPGAGPU_CORE_H */

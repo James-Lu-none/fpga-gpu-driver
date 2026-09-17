@@ -1,16 +1,16 @@
 #include "../include/kmd/fpgagpu_core.h"
 
-long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+long fpgagpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-    struct vgpu_context *ctx = file->private_data;
-    struct vgpu_dev *dev = ctx->dev;
+    struct fpgagpu_context *ctx = file->private_data;
+    struct fpgagpu_dev *dev = ctx->dev;
     
     if (_IOC_TYPE(cmd) != FPGAGPU_IOC_MAGIC && _IOC_TYPE(cmd) != 'V') return -ENOTTY;
     if (_IOC_NR(cmd) > FPGAGPU_IOC_MAXNR) return -ENOTTY;
 
     switch (cmd) {
-        case VGPU_IOC_DMA_TRANSFER: {
-            struct vgpu_dma_param dma_param;
+        case fpgagpu_IOC_DMA_TRANSFER: {
+            struct fpgagpu_dma_param dma_param;
             int num_pages, i;
             u32 chan_ctrl, chan_status, chan_sg_lo, chan_sg_hi, chan_sg_adj;
             enum dma_data_direction dma_dir;
@@ -19,7 +19,7 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             struct scatterlist *sg;
             int timeout;
 
-            if (copy_from_user(&dma_param, (struct vgpu_dma_param __user *)arg, sizeof(dma_param))) {
+            if (copy_from_user(&dma_param, (struct fpgagpu_dma_param __user *)arg, sizeof(dma_param))) {
                 return -EFAULT;
             }
 
@@ -33,7 +33,7 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             num_pages = (dma_param.size + PAGE_SIZE - 1) / PAGE_SIZE;
             if (num_pages > 8192) return -EINVAL;
 
-            if (dma_param.direction == VGPU_DMA_TO_DEVICE) {
+            if (dma_param.direction == fpgagpu_DMA_TO_DEVICE) {
                 chan_ctrl   = XDMA_H2C_CHAN0_CTRL;
                 chan_status = XDMA_H2C_CHAN0_STATUS;
                 chan_sg_lo  = XDMA_H2C_CHAN0_SG_LO;
@@ -41,7 +41,7 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 chan_sg_adj = XDMA_H2C_CHAN0_SG_ADJ;
                 dma_dir     = DMA_TO_DEVICE;
                 gup_flags   = 0;
-            } else if (dma_param.direction == VGPU_DMA_FROM_DEVICE) {
+            } else if (dma_param.direction == fpgagpu_DMA_FROM_DEVICE) {
                 chan_ctrl   = XDMA_C2H_CHAN0_CTRL;
                 chan_status = XDMA_C2H_CHAN0_STATUS;
                 chan_sg_lo  = XDMA_C2H_CHAN0_SG_LO;
@@ -57,7 +57,7 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             dev->num_pinned_pages = get_user_pages_fast(dma_param.host_vaddr, num_pages, 
                                                         gup_flags, dev->pinned_pages);
             if (dev->num_pinned_pages < 0) {
-                pr_err("vGPU-Core: get_user_pages_fast failed: %d\n", dev->num_pinned_pages);
+                pr_err("fpgagpu-Core: get_user_pages_fast failed: %d\n", dev->num_pinned_pages);
                 return dev->num_pinned_pages;
             }
 
@@ -75,7 +75,7 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
             dev->sgl_nents = dma_map_sg(&dev->pci_dev->dev, dev->sgl, dev->num_pinned_pages, dma_dir);
             if (dev->sgl_nents == 0) {
-                pr_err("vGPU-Core: dma_map_sg failed\n");
+                pr_err("fpgagpu-Core: dma_map_sg failed\n");
                 kfree(dev->sgl);
                 dev->sgl = NULL;
                 for (i = 0; i < dev->num_pinned_pages; i++) put_page(dev->pinned_pages[i]);
@@ -87,7 +87,7 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             cur_ddr3 = dma_param.ddr3_addr;
             for_each_sg(dev->sgl, sg, dev->sgl_nents, i) {
                 u32 len = sg_dma_len(sg);
-                if (dma_param.direction == VGPU_DMA_TO_DEVICE) {
+                if (dma_param.direction == fpgagpu_DMA_TO_DEVICE) {
                     dev->desc_ring[i].src_addr = sg_dma_address(sg);
                     dev->desc_ring[i].dst_addr = cur_ddr3;
                 } else {
@@ -125,7 +125,7 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             dev->sgl = NULL;
 
             for (i = 0; i < dev->num_pinned_pages; i++) {
-                if (dma_param.direction == VGPU_DMA_FROM_DEVICE) {
+                if (dma_param.direction == fpgagpu_DMA_FROM_DEVICE) {
                     set_page_dirty_lock(dev->pinned_pages[i]);
                 }
                 put_page(dev->pinned_pages[i]);
@@ -133,16 +133,16 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             dev->num_pinned_pages = 0;
 
             if (timeout == 0) {
-                pr_err("vGPU-Core: DMA transfer timed out!\n");
+                pr_err("fpgagpu-Core: DMA transfer timed out!\n");
                 return -ETIMEDOUT;
             }
             break;
         }
         
-        case VGPU_IOC_SUBMIT_CMD: {
-            struct vgpu_command user_cmd;
+        case fpgagpu_IOC_SUBMIT_CMD: {
+            struct fpgagpu_command user_cmd;
 
-            if (copy_from_user(&user_cmd, (struct vgpu_command __user *)arg, sizeof(user_cmd))) {
+            if (copy_from_user(&user_cmd, (struct fpgagpu_command __user *)arg, sizeof(user_cmd))) {
                 return -EFAULT;
             }
 
@@ -184,13 +184,13 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 
                 spin_unlock(&dev->global_lock);
             } else {
-                pr_err("vGPU-Core: Private queue mode currently unsupported\n");
+                pr_err("fpgagpu-Core: Private queue mode currently unsupported\n");
                 return -ENOTSUPP;
             }
             break;
         }
 
-        case VGPU_IOC_DOORBELL:
+        case fpgagpu_IOC_DOORBELL:
             if (queue_mode == 0) {
                 u32 tail = ioread32(&dev->ring->tail);
                 int timeout = 5000000;
@@ -199,17 +199,17 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                     schedule();
                 }
                 if (timeout == 0) {
-                    pr_err("vGPU-Core: Wait for completion timeout!\n");
+                    pr_err("fpgagpu-Core: Wait for completion timeout!\n");
                     return -ETIMEDOUT;
                 }
             } else {
-                pr_err("vGPU-Core: Private queue mode currently unsupported\n");
+                pr_err("fpgagpu-Core: Private queue mode currently unsupported\n");
                 return -ENOTSUPP;
             }
             break;
 
-        case VGPU_IOC_GET_VERSION: {
-            struct vgpu_version_info info;
+        case fpgagpu_IOC_GET_VERSION: {
+            struct fpgagpu_version_info info;
             info.major_version = ioread32(dev->csr_base + 0x20008);
             info.minor_version = ioread32(dev->csr_base + 0x2000C);
             if (copy_to_user((void __user *)arg, &info, sizeof(info)))
@@ -217,21 +217,21 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             break;
         }
 
-        case VGPU_IOC_LOAD_KERNEL: {
-            struct vgpu_kernel_binary kbin;
+        case fpgagpu_IOC_LOAD_KERNEL: {
+            struct fpgagpu_kernel_binary kbin;
             u32 __user *u_code;
             void __iomem *staging;
             u32 head, tail, target_tail;
             int i, timeout;
 
-            if (copy_from_user(&kbin, (struct vgpu_kernel_binary __user *)arg, sizeof(kbin)))
+            if (copy_from_user(&kbin, (struct fpgagpu_kernel_binary __user *)arg, sizeof(kbin)))
                 return -EFAULT;
 
             if (kbin.instr_size == 0 || kbin.instr_size > 1024)
                 return -EINVAL;
 
             u_code = (u32 __user *)kbin.user_instr_ptr;
-            staging = dev->csr_base + VGPU_KERNEL_STAGING_OFFSET;
+            staging = dev->csr_base + fpgagpu_KERNEL_STAGING_OFFSET;
 
             // Copy instructions word-by-word into BRAM Staging Buffer
             for (i = 0; i < kbin.instr_size; i++) {
@@ -252,7 +252,7 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
             struct fpgagpu_dispatch_packet task = {};
             task.magic        = FPGAGPU_MAGIC_OCL; /* "OCL1" */
-            task.opcode       = VGPU_OPCODE_LOAD_KERNEL;
+            task.opcode       = fpgagpu_OPCODE_LOAD_KERNEL;
             task.num_elements = kbin.instr_size;
             task.task_id      = kbin.kernel_id;
 
@@ -267,7 +267,7 @@ long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 cpu_relax();
             }
             if (timeout == 0) {
-                pr_err("vGPU-Core: Dynamic kernel load timed out!\n");
+                pr_err("fpgagpu-Core: Dynamic kernel load timed out!\n");
                 return -ETIMEDOUT;
             }
             break;

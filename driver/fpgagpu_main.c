@@ -6,33 +6,33 @@ module_param(queue_mode, int, 0644);
 MODULE_PARM_DESC(queue_mode, "0: Global Shared Queue, 1: Private Context Queue");
 
 
-struct class *g_vgpu_class = NULL;
+struct class *g_fpgagpu_class = NULL;
 
-// vgpu_dev_num is outside of vgpu_dev structure since dev_t contains
+// fpgagpu_dev_num is outside of fpgagpu_dev structure since dev_t contains
 // major and minor number for all devices that use this driver module
-static dev_t vgpu_dev_num;
-static atomic_t vgpu_minor_counter = ATOMIC_INIT(0);
+static dev_t fpgagpu_dev_num;
+static atomic_t fpgagpu_minor_counter = ATOMIC_INIT(0);
 
 /*
  * VFS Hook: open()
  * When User Space calls open("/dev/fpgagpu0"), VFS (Virtual File System) intercepts it.
  * VFS looks up the inode (Index Node) of /dev/fpgagpu0, extracts the Major/Minor number,
  * and searches the cdev_map to find our registered 'struct cdev'.
- * VFS then creates a 'struct file', assigns our vgpu_fops to file->f_op,
- * and finally calls this vgpu_open() function.
+ * VFS then creates a 'struct file', assigns our fpgagpu_fops to file->f_op,
+ * and finally calls this fpgagpu_open() function.
  */
-static int vgpu_open(struct inode *inode, struct file *file)
+static int fpgagpu_open(struct inode *inode, struct file *file)
 {
-    // by passing inode->i_cdev and call container_of, we can know that which device among /dev/vgpuX
+    // by passing inode->i_cdev and call container_of, we can know that which device among /dev/fpgagpuX
     // user is opening and assign the correct dev to that context, this is for private context queue mode
-    struct vgpu_dev *dev = container_of(inode->i_cdev, struct vgpu_dev, cdev);
-    struct vgpu_context *ctx;
+    struct fpgagpu_dev *dev = container_of(inode->i_cdev, struct fpgagpu_dev, cdev);
+    struct fpgagpu_context *ctx;
     
-    pr_info("vGPU-Core: open vgpu%d\n", dev->minor);
+    pr_info("fpgagpu-Core: open fpgagpu%d\n", dev->minor);
     
-    ctx = kzalloc(sizeof(struct vgpu_context), GFP_KERNEL);
+    ctx = kzalloc(sizeof(struct fpgagpu_context), GFP_KERNEL);
     if (!ctx) {
-        pr_err("vGPU-Core: failed to allocate context structure\n");
+        pr_err("fpgagpu-Core: failed to allocate context structure\n");
         return -ENOMEM;
     }
     
@@ -50,12 +50,12 @@ static int vgpu_open(struct inode *inode, struct file *file)
     return 0;
 }
 
-static int vgpu_release(struct inode *inode, struct file *file)
+static int fpgagpu_release(struct inode *inode, struct file *file)
 {
-    struct vgpu_context *ctx = file->private_data;
-    struct vgpu_dev *dev = ctx->dev;
+    struct fpgagpu_context *ctx = file->private_data;
+    struct fpgagpu_dev *dev = ctx->dev;
     
-    pr_info("vGPU-Core: release vgpu%d\n", dev->minor);
+    pr_info("fpgagpu-Core: release fpgagpu%d\n", dev->minor);
     
     if (ctx) {
         spin_lock(&dev->ctx_lock);
@@ -66,12 +66,12 @@ static int vgpu_release(struct inode *inode, struct file *file)
     return 0;
 }
 
-static ssize_t vgpu_read(struct file *file, char __user *user_buf, size_t size, loff_t *offset)
+static ssize_t fpgagpu_read(struct file *file, char __user *user_buf, size_t size, loff_t *offset)
 {
     return 0;
 }
 
-static ssize_t vgpu_write(struct file *file, const char __user *user_buf, size_t size, loff_t *offset)
+static ssize_t fpgagpu_write(struct file *file, const char __user *user_buf, size_t size, loff_t *offset)
 {
     return size;
 }
@@ -82,14 +82,14 @@ static ssize_t vgpu_write(struct file *file, const char __user *user_buf, size_t
  * It tells the VFS which driver function to call when a specific
  * system call (like read, write, ioctl, mmap) is executed on our file descriptor.
  */
-static const struct file_operations vgpu_fops = {
+static const struct file_operations fpgagpu_fops = {
     .owner          = THIS_MODULE,
-    .open           = vgpu_open,
-    .release        = vgpu_release,
-    .read           = vgpu_read,
-    .write          = vgpu_write,
-    .unlocked_ioctl = vgpu_ioctl,
-    .mmap           = vgpu_mmap,
+    .open           = fpgagpu_open,
+    .release        = fpgagpu_release,
+    .read           = fpgagpu_read,
+    .write          = fpgagpu_write,
+    .unlocked_ioctl = fpgagpu_ioctl,
+    .mmap           = fpgagpu_mmap,
 };
 
 /*
@@ -97,34 +97,34 @@ static const struct file_operations vgpu_fops = {
  * 1. allocate and setup driver data for the device 
  * 2. cdev_init() bind character device with fops
  * 3. cdev_add() registers character device driver with the kernel's internal map of character devices.
- * 4. device_create() create files under /sys/class/vgpu_class/vgpuX and setup userspace device node under /dev
+ * 4. device_create() create files under /sys/class/fpgagpu_class/fpgagpuX and setup userspace device node under /dev
  * p.s: all operation involves kobject since struct cdev, struct device, struct platform_device all contains kobject.
  * (platform_device containes struct device, so it also contains kobject.)
  */
-// static int vgpu_probe(struct platform_device *pdev)
-static int vgpu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
+// static int fpgagpu_probe(struct platform_device *pdev)
+static int fpgagpu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
     // The physical pci device itself is hardwired with its requirements in the Base Address Register (BAR) (etc: 256MB of MMIO space, 64bit addressing)
     // And during the system boot, the pci subsystem of bios/kernel will fetch those info from device and allocate a portion of physical address space accordingly
     // and write the address of the allocated physical address space back into the device's BAR
 
     int result;
-    struct vgpu_dev *dev;
+    struct fpgagpu_dev *dev;
 
-    pr_info("vGPU-Core: probing PCI device %04x:%04x...\n", pdev->vendor, pdev->device);
+    pr_info("fpgagpu-Core: probing PCI device %04x:%04x...\n", pdev->vendor, pdev->device);
 
     // Enable the physical PCI device and configure PCIe device's Configuration Space, enable memory/IO decoding, assigning interrupt numbers
     result = pci_enable_device(pdev);
     if (result) {
-        pr_err("vGPU-Core: failed to enable PCI device\n");
+        pr_err("fpgagpu-Core: failed to enable PCI device\n");
         return result;
     }
 
     // declare the the pci device is now under driver's control, preventing other drivers
     // from accessing the same resource, and will be released when the driver is unloaded
-    result = pci_request_regions(pdev, "vgpu_core");
+    result = pci_request_regions(pdev, "fpgagpu_core");
     if (result) {
-        pr_err("vGPU-Core: failed to request PCI regions\n");
+        pr_err("fpgagpu-Core: failed to request PCI regions\n");
         goto err_disable;
     }
 
@@ -142,13 +142,13 @@ static int vgpu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
      */
     result = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_MSI | PCI_IRQ_MSIX);
     if (result < 0) {
-        pr_err("vGPU-Core: failed to allocate IRQ vectors\n");
+        pr_err("fpgagpu-Core: failed to allocate IRQ vectors\n");
         goto err_disable;
     }
 
-    dev = kzalloc(sizeof(struct vgpu_dev), GFP_KERNEL);
+    dev = kzalloc(sizeof(struct fpgagpu_dev), GFP_KERNEL);
     if (!dev) {
-        pr_err("vGPU-Core: failed to allocate vgpu_dev\n");
+        pr_err("fpgagpu-Core: failed to allocate fpgagpu_dev\n");
         result = -ENOMEM;
         goto err_regions;
     }
@@ -167,7 +167,7 @@ static int vgpu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
     // to the XDMA IP in the FPGA, and FPGA will write data to the target memory-mapped register in FPGA.
     dev->csr_base = pci_ioremap_bar(pdev, 0);
     if (!dev->csr_base) {
-        pr_err("vGPU-Core: failed to ioremap BAR0\n");
+        pr_err("fpgagpu-Core: failed to ioremap BAR0\n");
         result = -ENOMEM;
         goto err_free;
     }
@@ -179,7 +179,7 @@ static int vgpu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
      */
     dev->dma_base = pci_ioremap_bar(pdev, 1);
     if (!dev->dma_base) {
-        pr_err("vGPU-Core: failed to ioremap BAR1 (XDMA Config)\n");
+        pr_err("fpgagpu-Core: failed to ioremap BAR1 (XDMA Config)\n");
         result = -ENOMEM;
         goto err_iounmap_bar0;
     }
@@ -190,9 +190,9 @@ static int vgpu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
      */
     dev->irq = pci_irq_vector(pdev, 0);
 
-    dev->minor = atomic_inc_return(&vgpu_minor_counter) - 1;
-    if (dev->minor >= MAX_VGPU_DEVICES) {
-        pr_err("vGPU-Core: exceeded maximum number of devices\n");
+    dev->minor = atomic_inc_return(&fpgagpu_minor_counter) - 1;
+    if (dev->minor >= MAX_fpgagpu_DEVICES) {
+        pr_err("fpgagpu-Core: exceeded maximum number of devices\n");
         result = -ENOSPC;
         goto err_iounmap;
     }
@@ -221,18 +221,18 @@ static int vgpu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
     dev->desc_ring = dma_alloc_coherent(&pdev->dev, 8192 * sizeof(struct xdma_desc),
                                          &dev->desc_ring_dma_addr, GFP_KERNEL);
     if (!dev->desc_ring) {
-        pr_err("vGPU-Core: failed to allocate XDMA descriptor ring buffer\n");
+        pr_err("fpgagpu-Core: failed to allocate XDMA descriptor ring buffer\n");
         result = -ENOMEM;
         goto err_mem_pt;
     }
 
-    pr_info("vGPU-Core: Allocated XDMA Descriptor Ring at %p (bus addr: %llx)\n", 
+    pr_info("fpgagpu-Core: Allocated XDMA Descriptor Ring at %p (bus addr: %llx)\n", 
             dev->desc_ring, (unsigned long long)dev->desc_ring_dma_addr);
     
     // Allocate array for pointers to the pinned pages (8192 entries)
     dev->pinned_pages = kzalloc(8192 * sizeof(struct page *), GFP_KERNEL);
     if (!dev->pinned_pages) {
-        pr_err("vGPU-Core: failed to allocate pinned_pages array\n");
+        pr_err("fpgagpu-Core: failed to allocate pinned_pages array\n");
         result = -ENOMEM;
         goto err_mem_pt;
     }
@@ -243,7 +243,7 @@ static int vgpu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
      * When the Host CPU updates dev->ring->tail, it's actually sending a PCIe MMIO Write 
      * directly into the FPGA BRAM.
      */
-    dev->ring = (struct vgpu_ring_buffer *)(dev->csr_base + VGPU_RING_OFFSET);
+    dev->ring = (struct fpgagpu_ring_buffer *)(dev->csr_base + fpgagpu_RING_OFFSET);
     // Note: Do not initialize head/tail to 0 here if the firmware has already started, 
     // but since we are probing, we reset them.
     iowrite32(0, &dev->ring->head);
@@ -252,46 +252,46 @@ static int vgpu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
     /*
      * IRQ Registration: request_irq()
      * We tell the Kernel's generic IRQ subsystem: "When interrupt number dev->irq fires,
-     * please execute vgpu_irq_handler". 
+     * please execute fpgagpu_irq_handler". 
      * The last argument 'dev' is the dev_id, an opaque pointer passed back to our handler
-     * so we know *which* specific vGPU device triggered the interrupt.
+     * so we know *which* specific fpgagpu device triggered the interrupt.
      */
-    result = request_irq(dev->irq, vgpu_irq_handler, 0, "vgpu_irq", dev);
+    result = request_irq(dev->irq, fpgagpu_irq_handler, 0, "fpgagpu_irq", dev);
     if (result) {
-        pr_err("vGPU-Core: failed to request IRQ %d\n", dev->irq);
+        pr_err("fpgagpu-Core: failed to request IRQ %d\n", dev->irq);
         goto err_irq;
     }
 
     /*
      * VFS Registration (Part 1/2): cdev_init
-     * We initialize the character device structure and link it to our vgpu_fops.
+     * We initialize the character device structure and link it to our fpgagpu_fops.
      * This prepares the cdev to handle system calls routed by VFS.
      */
-    cdev_init(&dev->cdev, &vgpu_fops);
+    cdev_init(&dev->cdev, &fpgagpu_fops);
     dev->cdev.owner = THIS_MODULE;
 
     /*
      * VFS Registration (Part 2/2): cdev_add
      * We register this cdev into the kernel's cdev_map using our device number (Major/Minor).
      * After this call, VFS knows that any operation on this device number
-     * should be handled by our vgpu_fops.
+     * should be handled by our fpgagpu_fops.
      */
-    result = cdev_add(&dev->cdev, MKDEV(MAJOR(vgpu_dev_num), dev->minor), 1);
+    result = cdev_add(&dev->cdev, MKDEV(MAJOR(fpgagpu_dev_num), dev->minor), 1);
     if (result < 0) {
-        pr_err("vGPU-Core: failed to add cdev\n");
+        pr_err("fpgagpu-Core: failed to add cdev\n");
         goto err_mem;
     }
 
-    dev->device = device_create(g_vgpu_class, &pdev->dev, MKDEV(MAJOR(vgpu_dev_num), dev->minor), NULL, "fpgagpu%d", dev->minor);
+    dev->device = device_create(g_fpgagpu_class, &pdev->dev, MKDEV(MAJOR(fpgagpu_dev_num), dev->minor), NULL, "fpgagpu%d", dev->minor);
     if (IS_ERR(dev->device)) {
-        pr_err("vGPU-Core: failed to create device node\n");
+        pr_err("fpgagpu-Core: failed to create device node\n");
         result = PTR_ERR(dev->device);
         goto err_cdev;
     }
 
     u32 hw_major = ioread32(dev->csr_base + 0x20008);
     u32 hw_minor = ioread32(dev->csr_base + 0x2000C);
-    pr_info("vGPU-Core: vgpu%d probed successfully at CSR %p, DMA %p (HW Version: v%u.%u)\n",
+    pr_info("fpgagpu-Core: fpgagpu%d probed successfully at CSR %p, DMA %p (HW Version: v%u.%u)\n",
             dev->minor, dev->csr_base, dev->dma_base, hw_major, hw_minor);
     return 0;
 
@@ -317,16 +317,16 @@ err_disable:
     return result;
 }
 
-// static void vgpu_remove(struct platform_device *pdev)
-static void vgpu_remove(struct pci_dev *pdev)
+// static void fpgagpu_remove(struct platform_device *pdev)
+static void fpgagpu_remove(struct pci_dev *pdev)
 {
-    // struct vgpu_dev *dev = platform_get_drvdata(pdev);
-    // pr_info("vGPU-Core: removing device %d...\n", dev->minor);
-    struct vgpu_dev *dev = pci_get_drvdata(pdev);
+    // struct fpgagpu_dev *dev = platform_get_drvdata(pdev);
+    // pr_info("fpgagpu-Core: removing device %d...\n", dev->minor);
+    struct fpgagpu_dev *dev = pci_get_drvdata(pdev);
 
     if (dev) {
-        pr_info("vGPU-Core: removing vgpu%d...\n", dev->minor);
-        device_destroy(g_vgpu_class, MKDEV(MAJOR(vgpu_dev_num), dev->minor));
+        pr_info("fpgagpu-Core: removing fpgagpu%d...\n", dev->minor);
+        device_destroy(g_fpgagpu_class, MKDEV(MAJOR(fpgagpu_dev_num), dev->minor));
         cdev_del(&dev->cdev);
 
         kfree(dev->pinned_pages);
@@ -361,74 +361,74 @@ static void vgpu_remove(struct pci_dev *pdev)
 }
 
 // pci device id is configured in XDMA ip in vivado
-static const struct pci_device_id vgpu_pci_id_table[] = {
+static const struct pci_device_id fpgagpu_pci_id_table[] = {
     { PCI_DEVICE(0x10EE, 0x7021) },
     { 0, }
 };
-MODULE_DEVICE_TABLE(pci, vgpu_pci_id_table);
+MODULE_DEVICE_TABLE(pci, fpgagpu_pci_id_table);
 
-// static struct platform_driver vgpu_driver = {
-//     .probe = vgpu_probe,
-//     .remove = vgpu_remove,
+// static struct platform_driver fpgagpu_driver = {
+//     .probe = fpgagpu_probe,
+//     .remove = fpgagpu_remove,
 //     .driver = {
-//         .name = "vgpu_device",
+//         .name = "fpgagpu_device",
 //         .owner = THIS_MODULE,
 //     },
 // };
 
-static struct pci_driver vgpu_pci_driver = {
-    .name = "vgpu_core",
-    .id_table = vgpu_pci_id_table,
-    .probe = vgpu_probe,
-    .remove = vgpu_remove,
+static struct pci_driver fpgagpu_pci_driver = {
+    .name = "fpgagpu_core",
+    .id_table = fpgagpu_pci_id_table,
+    .probe = fpgagpu_probe,
+    .remove = fpgagpu_remove,
 };
 
-static int __init vgpu_core_init(void)
+static int __init fpgagpu_core_init(void)
 {
     int result;
 
-    pr_info("vGPU-Core: module loading...\n");
+    pr_info("fpgagpu-Core: module loading...\n");
 
-    result = alloc_chrdev_region(&vgpu_dev_num, 0, MAX_VGPU_DEVICES, "vgpu_core");
+    result = alloc_chrdev_region(&fpgagpu_dev_num, 0, MAX_fpgagpu_DEVICES, "fpgagpu_core");
     if (result < 0) {
-        pr_err("vGPU-Core: failed to allocate char dev region\n");
+        pr_err("fpgagpu-Core: failed to allocate char dev region\n");
         return result;
     }
 
-    g_vgpu_class = class_create("vgpu_class");
-    if (IS_ERR(g_vgpu_class)) {
-        pr_err("vGPU-Core: failed to create class\n");
-        unregister_chrdev_region(vgpu_dev_num, MAX_VGPU_DEVICES);
-        return PTR_ERR(g_vgpu_class);
+    g_fpgagpu_class = class_create("fpgagpu_class");
+    if (IS_ERR(g_fpgagpu_class)) {
+        pr_err("fpgagpu-Core: failed to create class\n");
+        unregister_chrdev_region(fpgagpu_dev_num, MAX_fpgagpu_DEVICES);
+        return PTR_ERR(g_fpgagpu_class);
     }
 
-    // result = platform_driver_register(&vgpu_driver);
-    result = pci_register_driver(&vgpu_pci_driver);
+    // result = platform_driver_register(&fpgagpu_driver);
+    result = pci_register_driver(&fpgagpu_pci_driver);
     if (result < 0) {
-        pr_err("vGPU-Core: failed to register driver\n");
-        class_destroy(g_vgpu_class);
-        unregister_chrdev_region(vgpu_dev_num, MAX_VGPU_DEVICES);
+        pr_err("fpgagpu-Core: failed to register driver\n");
+        class_destroy(g_fpgagpu_class);
+        unregister_chrdev_region(fpgagpu_dev_num, MAX_fpgagpu_DEVICES);
         return result;
     }
 
-    pr_info("vGPU-Core: module loaded successfully\n");
+    pr_info("fpgagpu-Core: module loaded successfully\n");
     return 0;
 }
 
-static void __exit vgpu_core_exit(void)
+static void __exit fpgagpu_core_exit(void)
 {
-    pr_info("vGPU-Core: module unloading...\n");
+    pr_info("fpgagpu-Core: module unloading...\n");
 
-    pci_unregister_driver(&vgpu_pci_driver);
-    class_destroy(g_vgpu_class);
-    unregister_chrdev_region(vgpu_dev_num, MAX_VGPU_DEVICES);
+    pci_unregister_driver(&fpgagpu_pci_driver);
+    class_destroy(g_fpgagpu_class);
+    unregister_chrdev_region(fpgagpu_dev_num, MAX_fpgagpu_DEVICES);
 
-    pr_info("vGPU-Core: module unloaded\n");
+    pr_info("fpgagpu-Core: module unloaded\n");
 }
 
-module_init(vgpu_core_init);
-module_exit(vgpu_core_exit);
+module_init(fpgagpu_core_init);
+module_exit(fpgagpu_core_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("vGPU Team");
+MODULE_AUTHOR("fpgagpu Team");
 MODULE_DESCRIPTION("Virtual PCIe GPU/Accelerator Core Driver (Real PCIe Mode)");

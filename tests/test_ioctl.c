@@ -13,14 +13,14 @@
 void *worker_thread(void *arg) {
     int thread_id = *(int *)arg;
     
-    // 每個 Thread 各自 open 一次，在 Mode B 下會取得獨立的 vgpu_context
+    // 每個 Thread 各自 open 一次，在 Mode B 下會取得獨立的 fpgagpu_context
     int fd = open("/dev/fpgagpu0", O_RDWR);
     if (fd < 0) {
         perror("open /dev/fpgagpu0 error");
         return NULL;
     }
 
-    struct vgpu_command cmd = {
+    struct fpgagpu_command cmd = {
         .opcode = 1,
         .payload_size = 0,
         .payload_vaddr = 0,
@@ -28,13 +28,13 @@ void *worker_thread(void *arg) {
     unsigned long cmd_ptr = (unsigned long)&cmd;
 
     for (int i = 0; i < NUM_LOOPS; i++) {
-        if (ioctl(fd, VGPU_IOC_SUBMIT_CMD, cmd_ptr) < 0) {
-            perror("ioctl VGPU_IOC_SUBMIT_CMD error");
+        if (ioctl(fd, fpgagpu_IOC_SUBMIT_CMD, cmd_ptr) < 0) {
+            perror("ioctl fpgagpu_IOC_SUBMIT_CMD error");
             break;
         }
     }
     
-    ioctl(fd, VGPU_IOC_DOORBELL, 1);
+    ioctl(fd, fpgagpu_IOC_DOORBELL, 1);
 
     close(fd);
     return NULL;

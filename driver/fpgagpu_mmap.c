@@ -1,13 +1,13 @@
 #include "../include/kmd/fpgagpu_core.h"
 
-int vgpu_mmap(struct file *file, struct vm_area_struct *vma)
+int fpgagpu_mmap(struct file *file, struct vm_area_struct *vma)
 {
-    struct vgpu_context *ctx = file->private_data;
-    struct vgpu_dev *dev = ctx->dev;
+    struct fpgagpu_context *ctx = file->private_data;
+    struct fpgagpu_dev *dev = ctx->dev;
     size_t size = vma->vm_end - vma->vm_start;
     unsigned long pfn;
 
-    pr_info("vGPU-Core: mmap called on vgpu%d, size: %zu, pgoff: %lu\n", dev->minor, size, vma->vm_pgoff);
+    pr_info("fpgagpu-Core: mmap called on fpgagpu%d, size: %zu, pgoff: %lu\n", dev->minor, size, vma->vm_pgoff);
 
     if (vma->vm_pgoff == 0) {
         /*

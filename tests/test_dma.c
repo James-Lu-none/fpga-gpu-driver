@@ -9,7 +9,7 @@
 #include <sys/ioctl.h>
 #include "../include/uapi/fpgagpu_ioctl.h"
 
-#define VGPU_DEVICE "/dev/fpgagpu0"
+#define fpgagpu_DEVICE "/dev/fpgagpu0"
 
 static double get_time_sec(void) {
     struct timespec ts;
@@ -37,15 +37,15 @@ static int test_dma_transfer(int fd, uint64_t ddr3_addr, size_t size) {
     memset(rx_buf, 0x00, size);
 
     // 1. Host -> Device (H2C)
-    struct vgpu_dma_param dma_tx = {
-        .direction  = VGPU_DMA_TO_DEVICE,
+    struct fpgagpu_dma_param dma_tx = {
+        .direction  = fpgagpu_DMA_TO_DEVICE,
         .size       = size,
         .ddr3_addr  = ddr3_addr,
         .host_vaddr = (uintptr_t)tx_buf,
     };
 
     double t0 = get_time_sec();
-    if (ioctl(fd, VGPU_IOC_DMA_TRANSFER, &dma_tx) < 0) {
+    if (ioctl(fd, fpgagpu_IOC_DMA_TRANSFER, &dma_tx) < 0) {
         perror("FAILED (ioctl H2C DMA)");
         free(tx_buf);
         free(rx_buf);
@@ -54,15 +54,15 @@ static int test_dma_transfer(int fd, uint64_t ddr3_addr, size_t size) {
     double t1 = get_time_sec();
 
     // 2. Device -> Host (C2H)
-    struct vgpu_dma_param dma_rx = {
-        .direction  = VGPU_DMA_FROM_DEVICE,
+    struct fpgagpu_dma_param dma_rx = {
+        .direction  = fpgagpu_DMA_FROM_DEVICE,
         .size       = size,
         .ddr3_addr  = ddr3_addr,
         .host_vaddr = (uintptr_t)rx_buf,
     };
 
     double t2 = get_time_sec();
-    if (ioctl(fd, VGPU_IOC_DMA_TRANSFER, &dma_rx) < 0) {
+    if (ioctl(fd, fpgagpu_IOC_DMA_TRANSFER, &dma_rx) < 0) {
         perror("FAILED (ioctl C2H DMA)");
         free(tx_buf);
         free(rx_buf);
@@ -95,23 +95,23 @@ static int test_dma_transfer(int fd, uint64_t ddr3_addr, size_t size) {
 }
 
 int main(int argc, char **argv) {
-    printf("vGPU Core Driver IOCTL Verification Tool (/dev/fpgagpu0)\n");
+    printf("fpgagpu Core Driver IOCTL Verification Tool (/dev/fpgagpu0)\n");
 
-    int fd = open(VGPU_DEVICE, O_RDWR);
+    int fd = open(fpgagpu_DEVICE, O_RDWR);
     if (fd < 0) {
-        perror("Error opening " VGPU_DEVICE);
-        fprintf(stderr, "Make sure vgpu_driver.ko is loaded\n");
+        perror("Error opening " fpgagpu_DEVICE);
+        fprintf(stderr, "Make sure fpgagpu_driver.ko is loaded\n");
         return 1;
     }
 
-    printf("Successfully opened %s (fd=%d)\n", VGPU_DEVICE, fd);
+    printf("Successfully opened %s (fd=%d)\n", fpgagpu_DEVICE, fd);
 
-    struct vgpu_version_info ver = {0};
-    if (ioctl(fd, VGPU_IOC_GET_VERSION, &ver) == 0) {
+    struct fpgagpu_version_info ver = {0};
+    if (ioctl(fd, fpgagpu_IOC_GET_VERSION, &ver) == 0) {
         printf("FPGA Bitstream Version: v%u.%u\n", ver.major_version, ver.minor_version);
     }
 
-    printf("[Phase 1] Testing DDR3 VRAM DMA Transfers via VGPU_IOC_DMA_TRANSFER...\n");
+    printf("[Phase 1] Testing DDR3 VRAM DMA Transfers via fpgagpu_IOC_DMA_TRANSFER...\n");
 
     int failed = 0;
     failed += test_dma_transfer(fd, 0x00000000, 4096);       // 4KB at base
@@ -122,9 +122,9 @@ int main(int argc, char **argv) {
     failed += test_dma_transfer(fd, 0x20000000, 4194304);    // 4MB at 512MB
     failed += test_dma_transfer(fd, 0x3F000000, 1048576);    // 1MB at 1008MB (near 1GB)
 
-    printf("[Phase 2] Testing BRAM Ring Buffer via VGPU_IOC_SUBMIT_CMD...\n");
+    printf("[Phase 2] Testing BRAM Ring Buffer via fpgagpu_IOC_SUBMIT_CMD...\n");
 
-    struct vgpu_command cmd = {
+    struct fpgagpu_command cmd = {
         .opcode       = 0,          // Opcode 0: Ring Buffer Probe (NOP/Exit)
         .grid_dim_x   = 1,
         .grid_dim_y   = 1,
@@ -138,18 +138,18 @@ int main(int argc, char **argv) {
     printf("Submitting task descriptor to PicoRV32 BRAM Ring Buffer... ");
     fflush(stdout);
 
-    if (ioctl(fd, VGPU_IOC_SUBMIT_CMD, &cmd) < 0) {
-        perror("FAILED (VGPU_IOC_SUBMIT_CMD)");
+    if (ioctl(fd, fpgagpu_IOC_SUBMIT_CMD, &cmd) < 0) {
+        perror("FAILED (fpgagpu_IOC_SUBMIT_CMD)");
         failed++;
     } else {
         printf("SUCCESS\n");
     }
 
-    printf("Waiting for PicoRV32/GPU task completion via VGPU_IOC_DOORBELL... ");
+    printf("Waiting for PicoRV32/GPU task completion via fpgagpu_IOC_DOORBELL... ");
     fflush(stdout);
 
-    if (ioctl(fd, VGPU_IOC_DOORBELL, 0) < 0) {
-        perror("FAILED (VGPU_IOC_DOORBELL)");
+    if (ioctl(fd, fpgagpu_IOC_DOORBELL, 0) < 0) {
+        perror("FAILED (fpgagpu_IOC_DOORBELL)");
         failed++;
     } else {
         printf("SUCCESS (Completed by PicoRV32!)\n");

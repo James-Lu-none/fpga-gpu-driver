@@ -8,7 +8,7 @@ sequenceDiagram
     box rgb(230, 240, 255) Linux Kernel Space
     participant VFS as VFS (File System)
     participant PCI as PCI Subsystem
-    participant Driver as vGPU Driver (vGPU-Core)
+    participant Driver as fpgagpu Driver (fpgagpu-Core)
     end
     
     box rgb(255, 245, 238) Motherboard
@@ -19,8 +19,8 @@ sequenceDiagram
     box rgb(245, 255, 250) FPGA Hardware (Artix-7 XC7A200T)
     participant XDMA as XDMA IP Subsystem
     participant SmartConnect as AXI SmartConnect
-    participant Regs as MMIO Regs (vgpu_axi_lite_regs)
-    participant Core as Compute Core ALU (vgpu_compute_core)
+    participant Regs as MMIO Regs (fpgagpu_axi_lite_regs)
+    participant Core as Compute Core ALU (fpgagpu_compute_core)
     end
 
     %% Phase 1: Boot & Driver Load
@@ -32,21 +32,21 @@ sequenceDiagram
     PCI->>XDMA: PCIe Config Write: Write Physical Addr back to BAR0
     
     Driver->>PCI: module_init() -> pci_register_driver()
-    PCI->>Driver: Match ID -> vgpu_probe(pdev)
+    PCI->>Driver: Match ID -> fpgagpu_probe(pdev)
     
     Driver->>PCI: pci_enable_device(), pci_request_regions()
     Driver->>PCI: pci_ioremap_bar(pdev, 0)
     PCI-->>Driver: Returns mmio_base (Virtual Addr mapped to BAR0)
     
     Driver->>PCI: pci_alloc_irq_vectors() (Request MSI Vector 0)
-    Driver->>PCI: request_irq(dev->irq, vgpu_irq_handler)
+    Driver->>PCI: request_irq(dev->irq, fpgagpu_irq_handler)
     
     Driver->>RAM: dma_alloc_coherent() (Allocate Ring Buffer 4KB)
     RAM-->>Driver: Return Virtual Addr & Bus Addr (dma_handle)
     Note over Driver, Regs: Provide FPGA with Ring Buffer Base Address (64-bit split)
     Driver->>PCIe: iowrite32(lower_32_bits(dma_handle), mmio_base + 0x0C)
     Driver->>PCIe: iowrite32(upper_32_bits(dma_handle), mmio_base + 0x10)
-    PCIe->>SmartConnect: Route AXI-Lite Write to vgpu_top
+    PCIe->>SmartConnect: Route AXI-Lite Write to fpgagpu_top
     SmartConnect->>Regs: Latch reg_ring_dma_addr [63:0]
     
     Driver->>RAM: dma_alloc_coherent() (Allocate XDMA Descriptor Ring 64KB)
@@ -57,11 +57,11 @@ sequenceDiagram
     %% Phase 2: User Initialization
     Note over App, Core: [Phase 2] Application Initialization
     App->>VFS: open("/dev/fpgagpu0")
-    VFS->>Driver: vgpu_open() (Allocates vgpu_context)
+    VFS->>Driver: fpgagpu_open() (Allocates fpgagpu_context)
     Driver-->>App: File Descriptor (fd)
     
     App->>VFS: mmap(fd, size=4096, offset=0)
-    VFS->>Driver: vgpu_mmap(pgoff=0)
+    VFS->>Driver: fpgagpu_mmap(pgoff=0)
     Driver->>Driver: dma_mmap_coherent() (Map Ring Buffer to User Virtual Addr)
     Driver-->>App: Return Ring Buffer Virtual Address (ring_ptr)
     
@@ -71,8 +71,8 @@ sequenceDiagram
     %% Phase 3: Command Submission & XDMA Descriptor Construction
     Note over App, Core: [Phase 3] Command Submission & XDMA Descriptor Construction
     
-    App->>VFS: ioctl(fd, VGPU_IOC_SUBMIT_CMD, &user_cmd)
-    VFS->>Driver: vgpu_ioctl()
+    App->>VFS: ioctl(fd, fpgagpu_IOC_SUBMIT_CMD, &user_cmd)
+    VFS->>Driver: fpgagpu_ioctl()
     Note over Driver, RAM: Unified Memory Setup (Demand Paging + XDMA SG Chain)
     Driver->>RAM: get_user_pages_fast(user_vaddr) (Lock/Pin User Pages)
     Driver->>Driver: dma_map_sg() (Map pinned pages to DMA scatterlist, supports IOMMU & Non-IOMMU)
@@ -91,10 +91,10 @@ sequenceDiagram
     Driver->>RAM: Write Command Data to ring->cmds[tail] (16 Bytes)
     Note over Driver: CPU Producer: Update Tail with Memory Barrier
     Driver->>RAM: smp_store_release(&ring->tail) (Ensure command committed before tail updates!)
-    Driver-->>App: VGPU_IOC_SUBMIT_CMD returns
+    Driver-->>App: fpgagpu_IOC_SUBMIT_CMD returns
     
-    App->>VFS: ioctl(fd, VGPU_IOC_DOORBELL)
-    VFS->>Driver: vgpu_ioctl()
+    App->>VFS: ioctl(fd, fpgagpu_IOC_DOORBELL)
+    VFS->>Driver: fpgagpu_ioctl()
     
     Note over Driver: Clear irq_fired = 0 (Prevent Lost Wakeup)
     
@@ -140,7 +140,7 @@ sequenceDiagram
     XDMA->>PCIe: Issue MSI Memory Write TLP (Vector 0 to CPU APIC)
     
     PCIe->>PCI: CPU receives MSI Interrupt
-    PCI->>Driver: Execute Top-Half: vgpu_irq_handler()
+    PCI->>Driver: Execute Top-Half: fpgagpu_irq_handler()
     
     Note over Driver, Regs: Acknowledge Hardware Interrupt
     Driver->>PCIe: ioread32(mmio_base + 0x04) (Read INT_STATUS)
@@ -160,5 +160,5 @@ sequenceDiagram
     Driver->>Driver: dma_unmap_sg() (Unmap Scatter-Gather DMA Mappings)
     Driver->>RAM: put_page() (Unpin/Release physical pages)
     
-    Driver-->>App: ioctl(VGPU_IOC_DOORBELL) returns SUCCESS!
+    Driver-->>App: ioctl(fpgagpu_IOC_DOORBELL) returns SUCCESS!
     Note over App: Thread WAKES UP. Results are ready in memory!

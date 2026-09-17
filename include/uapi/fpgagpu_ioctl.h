@@ -77,22 +77,22 @@ struct fpgagpu_kernel_binary {
 #define FPGAGPU_IOC_MAXNR 6
 
 /* Legacy Aliases for backwards compatibility with existing tests */
-#define VGPU_IOC_MAGIC            FPGAGPU_IOC_MAGIC
-#define vgpu_command              fpgagpu_launch_cmd
-#define vgpu_dma_param            fpgagpu_dma_param
-#define vgpu_version_info         fpgagpu_version_info
-#define vgpu_kernel_binary        fpgagpu_kernel_binary
-#define VGPU_DMA_TO_DEVICE        FPGAGPU_DMA_TO_DEVICE
-#define VGPU_DMA_FROM_DEVICE      FPGAGPU_DMA_FROM_DEVICE
-#define VGPU_OPCODE_NOP           FPGAGPU_OPCODE_NOP
-#define VGPU_OPCODE_LAUNCH_KERNEL FPGAGPU_OPCODE_LAUNCH_KERNEL
-#define VGPU_OPCODE_LOAD_KERNEL   FPGAGPU_OPCODE_LOAD_KERNEL
-#define VGPU_IOC_SUBMIT_CMD       FPGAGPU_IOC_SUBMIT_CMD
-#define VGPU_IOC_DOORBELL         FPGAGPU_IOC_DOORBELL
-#define VGPU_IOC_WAIT_FOR_IRQ     FPGAGPU_IOC_WAIT_FOR_IRQ
-#define VGPU_IOC_DMA_TRANSFER     FPGAGPU_IOC_DMA_TRANSFER
-#define VGPU_IOC_GET_VERSION      FPGAGPU_IOC_GET_VERSION
-#define VGPU_IOC_LOAD_KERNEL      FPGAGPU_IOC_LOAD_KERNEL
-#define VGPU_IOC_MAXNR            FPGAGPU_IOC_MAXNR
+#define fpgagpu_IOC_MAGIC            FPGAGPU_IOC_MAGIC
+#define fpgagpu_command              fpgagpu_launch_cmd
+#define fpgagpu_dma_param            fpgagpu_dma_param
+#define fpgagpu_version_info         fpgagpu_version_info
+#define fpgagpu_kernel_binary        fpgagpu_kernel_binary
+#define fpgagpu_DMA_TO_DEVICE        FPGAGPU_DMA_TO_DEVICE
+#define fpgagpu_DMA_FROM_DEVICE      FPGAGPU_DMA_FROM_DEVICE
+#define fpgagpu_OPCODE_NOP           FPGAGPU_OPCODE_NOP
+#define fpgagpu_OPCODE_LAUNCH_KERNEL FPGAGPU_OPCODE_LAUNCH_KERNEL
+#define fpgagpu_OPCODE_LOAD_KERNEL   FPGAGPU_OPCODE_LOAD_KERNEL
+#define fpgagpu_IOC_SUBMIT_CMD       FPGAGPU_IOC_SUBMIT_CMD
+#define fpgagpu_IOC_DOORBELL         FPGAGPU_IOC_DOORBELL
+#define fpgagpu_IOC_WAIT_FOR_IRQ     FPGAGPU_IOC_WAIT_FOR_IRQ
+#define fpgagpu_IOC_DMA_TRANSFER     FPGAGPU_IOC_DMA_TRANSFER
+#define fpgagpu_IOC_GET_VERSION      FPGAGPU_IOC_GET_VERSION
+#define fpgagpu_IOC_LOAD_KERNEL      FPGAGPU_IOC_LOAD_KERNEL
+#define fpgagpu_IOC_MAXNR            FPGAGPU_IOC_MAXNR
 
 #endif /* _FPGAGPU_IOCTL_H */

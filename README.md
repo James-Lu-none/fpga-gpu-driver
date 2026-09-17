@@ -37,17 +37,17 @@ make clean
 make
 
 # global queue + spin_lock vs private queue per context
-sudo rmmod vgpu_core
-sudo insmod driver/vgpu_core.ko queue_mode=0
+sudo rmmod fpgagpu_core
+sudo insmod driver/fpgagpu_core.ko queue_mode=0
 sudo ./tests/test_ioctl
 
-sudo rmmod vgpu_core
-sudo insmod driver/vgpu_core.ko queue_mode=1
+sudo rmmod fpgagpu_core
+sudo insmod driver/fpgagpu_core.ko queue_mode=1
 sudo ./tests/test_ioctl
 
 # test working queue & interrupt
-sudo rmmod vgpu_core
-sudo insmod driver/vgpu_core.ko queue_mode=1
+sudo rmmod fpgagpu_core
+sudo insmod driver/fpgagpu_core.ko queue_mode=1
 sudo ./tests/test_interrupt
 ```
 

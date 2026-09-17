@@ -8,22 +8,22 @@
  * NOTE: This function runs in an "Interrupt Context". It MUST NOT sleep!
  * (That means no msleep, no kmalloc with GFP_KERNEL, no wait_event).
  */
-irqreturn_t vgpu_irq_handler(int irq, void *dev_id)
+irqreturn_t fpgagpu_irq_handler(int irq, void *dev_id)
 {
-    struct vgpu_dev *dev = (struct vgpu_dev *)dev_id;
+    struct fpgagpu_dev *dev = (struct fpgagpu_dev *)dev_id;
 
     /*
      * PCIe Interrupt Received from FPGA (XDMA usr_irq_req)
      * The hardware compute core has finished execution. Wake up User Space.
      */
-    pr_info("vGPU-Core: [Hardware] PCIe IRQ received on vgpu%d!\n", dev->minor);
+    pr_info("fpgagpu-Core: [Hardware] PCIe IRQ received on fpgagpu%d!\n", dev->minor);
     
     /*
      * Step 2: Wake up User Space.
      * With a lock-free Ring Buffer, the FPGA has already updated 'ring->head' 
      * via a PCIe DMA Write directly into Host RAM before asserting this MSI interrupt.
      * The CPU does NOT need to update head or tail here. We simply wake up 
-     * the thread waiting in VGPU_IOC_DOORBELL_AND_WAIT.
+     * the thread waiting in fpgagpu_IOC_DOORBELL_AND_WAIT.
      */
     if (queue_mode == 0) {
         /*
@@ -33,7 +33,7 @@ irqreturn_t vgpu_irq_handler(int irq, void *dev_id)
         dev->irq_fired = 1;
         wake_up_interruptible(&dev->wait_q);
     } else {
-        struct vgpu_context *ctx;
+        struct fpgagpu_context *ctx;
         
         spin_lock(&dev->ctx_lock);
         list_for_each_entry(ctx, &dev->ctx_list, list_node) {
