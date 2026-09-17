@@ -4,7 +4,7 @@ deprecated as new setup uses real pci device instead of virtualized platform dev
 
 #include <linux/module.h>
 #include <linux/platform_device.h>
-#include "../include/vgpu/vgpu_core.h"
+#include "../include/kmd/fpgagpu_core.h"
 
 static struct platform_device *vgpu_pdevs[MAX_VGPU_DEVICES];
 

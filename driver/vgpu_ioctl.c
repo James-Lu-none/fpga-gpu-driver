@@ -1,4 +1,4 @@
-#include "../include/vgpu/vgpu_core.h"
+#include "../include/kmd/fpgagpu_core.h"
 
 long vgpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {

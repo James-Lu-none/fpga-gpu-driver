@@ -1,4 +1,4 @@
-#include "../include/vgpu/vgpu_core.h"
+#include "../include/kmd/fpgagpu_core.h"
 
 int vgpu_mmap(struct file *file, struct vm_area_struct *vma)
 {
