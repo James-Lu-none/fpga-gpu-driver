@@ -282,7 +282,7 @@ static int vgpu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
         goto err_mem;
     }
 
-    dev->device = device_create(g_vgpu_class, &pdev->dev, MKDEV(MAJOR(vgpu_dev_num), dev->minor), NULL, "vgpu%d", dev->minor);
+    dev->device = device_create(g_vgpu_class, &pdev->dev, MKDEV(MAJOR(vgpu_dev_num), dev->minor), NULL, "fpgagpu%d", dev->minor);
     if (IS_ERR(dev->device)) {
         pr_err("vGPU-Core: failed to create device node\n");
         result = PTR_ERR(dev->device);
