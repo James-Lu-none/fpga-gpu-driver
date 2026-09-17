@@ -14,9 +14,9 @@ void *worker_thread(void *arg) {
     int thread_id = *(int *)arg;
     
     // 每個 Thread 各自 open 一次，在 Mode B 下會取得獨立的 vgpu_context
-    int fd = open("/dev/vgpu0", O_RDWR);
+    int fd = open("/dev/fpgagpu0", O_RDWR);
     if (fd < 0) {
-        perror("open /dev/vgpu0 error");
+        perror("open /dev/fpgagpu0 error");
         return NULL;
     }
 

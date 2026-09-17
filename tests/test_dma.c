@@ -9,7 +9,7 @@
 #include <sys/ioctl.h>
 #include "../include/uapi/fpgagpu_ioctl.h"
 
-#define VGPU_DEVICE "/dev/vgpu0"
+#define VGPU_DEVICE "/dev/fpgagpu0"
 
 static double get_time_sec(void) {
     struct timespec ts;
@@ -95,7 +95,7 @@ static int test_dma_transfer(int fd, uint64_t ddr3_addr, size_t size) {
 }
 
 int main(int argc, char **argv) {
-    printf("vGPU Core Driver IOCTL Verification Tool (/dev/vgpu0)\n");
+    printf("vGPU Core Driver IOCTL Verification Tool (/dev/fpgagpu0)\n");
 
     int fd = open(VGPU_DEVICE, O_RDWR);
     if (fd < 0) {

@@ -15,8 +15,8 @@ static atomic_t vgpu_minor_counter = ATOMIC_INIT(0);
 
 /*
  * VFS Hook: open()
- * When User Space calls open("/dev/vgpu0"), VFS (Virtual File System) intercepts it.
- * VFS looks up the inode (Index Node) of /dev/vgpu0, extracts the Major/Minor number,
+ * When User Space calls open("/dev/fpgagpu0"), VFS (Virtual File System) intercepts it.
+ * VFS looks up the inode (Index Node) of /dev/fpgagpu0, extracts the Major/Minor number,
  * and searches the cdev_map to find our registered 'struct cdev'.
  * VFS then creates a 'struct file', assigns our vgpu_fops to file->f_op,
  * and finally calls this vgpu_open() function.

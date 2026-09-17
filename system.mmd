@@ -52,11 +52,11 @@ sequenceDiagram
     Driver->>RAM: dma_alloc_coherent() (Allocate XDMA Descriptor Ring 64KB)
     RAM-->>Driver: Return Virtual Addr & Bus Addr (desc_ring_dma_addr)
     
-    Driver->>VFS: cdev_add(), device_create(/dev/vgpu0)
+    Driver->>VFS: cdev_add(), device_create(/dev/fpgagpu0)
 
     %% Phase 2: User Initialization
     Note over App, Core: [Phase 2] Application Initialization
-    App->>VFS: open("/dev/vgpu0")
+    App->>VFS: open("/dev/fpgagpu0")
     VFS->>Driver: vgpu_open() (Allocates vgpu_context)
     Driver-->>App: File Descriptor (fd)
     
