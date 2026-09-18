@@ -20,6 +20,7 @@
 
 #define FPGAGPU_KERNEL_STAGING_OFFSET 0x00010000 // BAR0 BRAM Staging Buffer for Dynamic Kernels (16KB)
 #define FPGAGPU_RING_OFFSET           0x00018000 // Direct BAR0 BRAM Ring Buffer Offset (32KB)
+#define FPGAGPU_CP_IRQ_OFFSET         0x00020000 // Host-to-PicoRV32 command IRQ register
 #define QUEUE_SIZE                    512        // Size of task descriptor is 64 bytes, 32KB/64 = 512
 
 /*

@@ -179,8 +179,10 @@ long fpgagpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 // Write the 64-byte task directly into BRAM Ring Buffer via CSR MMIO
                 memcpy_toio(&dev->ring->cmds[tail], &task, sizeof(task));
                 
-                // Update tail pointer in BRAM. PicoRV32 polls this pointer.
+                // Publish the descriptor before ringing PicoRV32's command
+                // interrupt. Firmware no longer polls ring->tail.
                 iowrite32((tail + 1) % QUEUE_SIZE, &dev->ring->tail);
+                iowrite32(1, dev->csr_base + FPGAGPU_CP_IRQ_OFFSET);
                 
                 spin_unlock(&dev->global_lock);
             } else {
@@ -193,15 +195,18 @@ long fpgagpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         case fpgagpu_IOC_DOORBELL:
             if (queue_mode == 0) {
                 u32 tail = ioread32(&dev->ring->tail);
-                int timeout = 5000000;
-                
-                while (ioread32(&dev->ring->head) != tail && --timeout > 0) {
-                    schedule();
-                }
-                if (timeout == 0) {
+                long wait_ret;
+
+                wait_ret = wait_event_interruptible_timeout(
+                    dev->wait_q,
+                    ioread32(&dev->ring->head) == tail,
+                    msecs_to_jiffies(5000));
+                if (wait_ret == 0) {
                     pr_err("fpgagpu-Core: Wait for completion timeout!\n");
                     return -ETIMEDOUT;
                 }
+                if (wait_ret < 0)
+                    return wait_ret;
             } else {
                 pr_err("fpgagpu-Core: Private queue mode currently unsupported\n");
                 return -ENOTSUPP;
@@ -259,17 +264,20 @@ long fpgagpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             memcpy_toio(&dev->ring->cmds[tail], &task, sizeof(task));
             target_tail = (tail + 1) % QUEUE_SIZE;
             iowrite32(target_tail, &dev->ring->tail);
+            iowrite32(1, dev->csr_base + FPGAGPU_CP_IRQ_OFFSET);
             spin_unlock(&dev->global_lock);
 
-            // Synchronously wait for PicoRV32 to finish loading into GPU I-RAM
-            timeout = 1000000;
-            while (ioread32(&dev->ring->head) != target_tail && --timeout > 0) {
-                cpu_relax();
-            }
+            // Completion IRQ is sent after firmware commits ring->head.
+            timeout = wait_event_interruptible_timeout(
+                dev->wait_q,
+                ioread32(&dev->ring->head) == target_tail,
+                msecs_to_jiffies(5000));
             if (timeout == 0) {
                 pr_err("fpgagpu-Core: Dynamic kernel load timed out!\n");
                 return -ETIMEDOUT;
             }
+            if (timeout < 0)
+                return timeout;
             break;
         }
 
