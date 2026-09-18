@@ -47,3 +47,4 @@ test_compute
 test_opencl_vector_add
 test_opencl_matmul
 test_opencl_buffer_copy
+test_opencl_matmul_occupancy
