@@ -7,17 +7,22 @@
 // A 4x4 problem creates 16 work-items and accesses multiple cache lines.
 #define MATRIX_DIM 4
 
-static const char *kernel_source =
-"__kernel void matmul(__global const int *A, __global const int *B, __global int *C, int N) {\n"
-"    int col = get_global_id(0);\n"
-"    int row = get_global_id(1);\n"
-"    int sum = 0;\n"
-"    #pragma unroll\n"
-"    for (int k = 0; k < 4; k++) {\n"
-"        sum += A[row * N + k] * B[k * N + col];\n"
-"    }\n"
-"    C[row * N + col] = sum;\n"
-"}\n";
+#include "kernel_source.h"
+#include "raw_data.h"
+
+static const char *kernel_source = STRINGIFY(
+    __kernel void matmul(__global const int *A,
+                         __global const int *B,
+                         __global int *C, int N) {
+        int col = get_global_id(0);
+        int row = get_global_id(1);
+        int sum = 0;
+        for (int k = 0; k < 4; k++) {
+            sum += A[row * N + k] * B[k * N + col];
+        }
+        C[row * N + col] = sum;
+    }
+);
 
 int main(void) {
 
@@ -25,8 +30,8 @@ int main(void) {
     cl_platform_id platform = NULL;
     cl_device_id device = NULL;
 
-    clGetPlatformIDs(1, &platform, NULL);
-    clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, 1, &device, NULL);
+    if (clGetPlatformIDs(1, &platform, NULL) != CL_SUCCESS) return 1;
+    if (clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, 1, &device, NULL) != CL_SUCCESS) return 1;
 
     cl_context context = clCreateContext(NULL, 1, &device, NULL, NULL, &err);
     if (err != CL_SUCCESS) {
@@ -40,7 +45,7 @@ int main(void) {
         return 1;
     }
 
-    // Step 1: Initialize Host Matrices (2x2)
+    // Step 1: Initialize Host Matrices (4x4)
     int32_t *h_A = NULL;
     int32_t *h_B = NULL;
     int32_t *h_C = NULL;
@@ -76,17 +81,20 @@ int main(void) {
         }
     }
 
+    if (write_raw("matmul_cpu.bin", expected, MATRIX_DIM * MATRIX_DIM)) return 1;
+
     // Step 2: Allocate Device Buffers
     cl_mem d_A = clCreateBuffer(context, CL_MEM_READ_ONLY, 4096, NULL, NULL);
     cl_mem d_B = clCreateBuffer(context, CL_MEM_READ_ONLY, 4096, NULL, NULL);
     cl_mem d_C = clCreateBuffer(context, CL_MEM_WRITE_ONLY, 4096, NULL, NULL);
 
-    clEnqueueWriteBuffer(queue, d_A, CL_TRUE, 0, 4096, h_A, 0, NULL, NULL);
-    clEnqueueWriteBuffer(queue, d_B, CL_TRUE, 0, 4096, h_B, 0, NULL, NULL);
-    clEnqueueWriteBuffer(queue, d_C, CL_TRUE, 0, 4096, h_C, 0, NULL, NULL);
+    if (!d_A || !d_B || !d_C) return 1;
+
+    if (clEnqueueWriteBuffer(queue, d_A, CL_TRUE, 0, 4096, h_A, 0, NULL, NULL) != CL_SUCCESS) return 1;
+    if (clEnqueueWriteBuffer(queue, d_B, CL_TRUE, 0, 4096, h_B, 0, NULL, NULL) != CL_SUCCESS) return 1;
+    if (clEnqueueWriteBuffer(queue, d_C, CL_TRUE, 0, 4096, h_C, 0, NULL, NULL) != CL_SUCCESS) return 1;
 
     // Step 3: Compile OpenCL C Kernel
-    printf("[Step 2] Compiling 2D Matrix Multiplication Kernel...\n");
     cl_program program = clCreateProgramWithSource(context, 1, &kernel_source, NULL, NULL);
     err = clBuildProgram(program, 1, &device, NULL, NULL, NULL);
     if (err != CL_SUCCESS) {
@@ -96,14 +104,14 @@ int main(void) {
 
     // Step 4: Create Kernel and Set Arguments
     cl_kernel kernel = clCreateKernel(program, "matmul", NULL);
+    if (!kernel) return 1;
     int32_t dim = MATRIX_DIM;
-    clSetKernelArg(kernel, 0, sizeof(cl_mem), &d_A);
-    clSetKernelArg(kernel, 1, sizeof(cl_mem), &d_B);
-    clSetKernelArg(kernel, 2, sizeof(cl_mem), &d_C);
-    clSetKernelArg(kernel, 3, sizeof(int32_t), &dim);
+    if (clSetKernelArg(kernel, 0, sizeof(cl_mem), &d_A) != CL_SUCCESS) return 1;
+    if (clSetKernelArg(kernel, 1, sizeof(cl_mem), &d_B) != CL_SUCCESS) return 1;
+    if (clSetKernelArg(kernel, 2, sizeof(cl_mem), &d_C) != CL_SUCCESS) return 1;
+    if (clSetKernelArg(kernel, 3, sizeof(int32_t), &dim) != CL_SUCCESS) return 1;
 
     // Step 5: Launch 2D NDRange Kernel
-    printf("[Step 3] Launching 2D NDRange Kernel (%dx%d threads)...\n", MATRIX_DIM, MATRIX_DIM);
     size_t global_work_size[2] = {MATRIX_DIM, MATRIX_DIM};
     size_t local_work_size[2]  = {2, 1};
 
@@ -116,22 +124,12 @@ int main(void) {
     }
 
     // Step 6: Synchronize and Read Back
-    clFinish(queue);
-    clEnqueueReadBuffer(queue, d_C, CL_TRUE, 0, 4096, h_C, 0, NULL, NULL);
+    if (clFinish(queue) != CL_SUCCESS) return 1;
+    if (clEnqueueReadBuffer(queue, d_C, CL_TRUE, 0, 4096, h_C, 0, NULL, NULL) != CL_SUCCESS) return 1;
 
-    // Step 7: Verification
-    printf("\n[Step 4] Verification Matrix C = A x B:\n");
-    printf(" Row, Col | Actual Result | Expected Result | Status\n");
-    int mismatches = 0;
-    for (int r = 0; r < MATRIX_DIM; r++) {
-        for (int c = 0; c < MATRIX_DIM; c++) {
-            int idx = r * MATRIX_DIM + c;
-            int pass = (h_C[idx] == expected[idx]);
-            if (!pass) mismatches++;
-            printf(" (%d, %d)   | %13d | %15d | %s\n",
-                   r, c, h_C[idx], expected[idx], pass ? "PASS" : "FAIL ***");
-        }
-    }
+    // Headerless little-endian int32 data; compare without parsing console text.
+    if (write_raw("matmul_gpu.bin", h_C, MATRIX_DIM * MATRIX_DIM)) return 1;
+    int mismatches = memcmp(h_C, expected, sizeof(expected)) != 0;
 
     clReleaseKernel(kernel);
     clReleaseProgram(program);
@@ -144,11 +142,5 @@ int main(void) {
     free(h_B);
     free(h_C);
 
-    if (mismatches == 0) {
-        printf("\n>>> SUCCESS! Matrix Multiplication verified! <<<\n\n");
-        return 0;
-    } else {
-        printf("\n>>> FAILURE: %d mismatches found! <<<\n\n", mismatches);
-        return 1;
-    }
+    return mismatches ? 1 : 0;
 }

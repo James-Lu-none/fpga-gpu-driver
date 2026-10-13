@@ -7,13 +7,16 @@
 // LSU request FIFO while keeping the test small enough for quick iteration.
 #define NUM_ELEMENTS 64
 
-static const char *kernel_source =
-"__kernel void vector_add(__global const int *A, __global const int *B, __global int *C, int n) {\n"
-"    int id = get_global_id(0);\n"
-"    if (id < n) {\n"
-"        C[id] = A[id] + B[id];\n"
-"    }\n"
-"}\n";
+#include "kernel_source.h"
+
+static const char *kernel_source = STRINGIFY(
+    __kernel void vector_add(__global const int *A, __global const int *B, __global int *C, int n) {
+        int id = get_global_id(0);
+        if (id < n) {
+            C[id] = A[id] + B[id];
+        }
+    }
+);
 
 int main(void) {
 

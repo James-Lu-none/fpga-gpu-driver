@@ -8,18 +8,21 @@
 #define BUFFER_SIZE 4096
 #define NUM_CASES 3
 
-static const char *kernel_source =
-"__kernel void matmul(__global const int *A, __global const int *B, __global int *C, int N) {\n"
-"    int col = get_global_id(0);\n"
-"    int row = get_global_id(1);\n"
-"    if (row < N && col < N) {\n"
-"        int sum = 0;\n"
-"        for (int k = 0; k < 4; k++) {\n"
-"            sum += A[row * N + k] * B[k * N + col];\n"
-"        }\n"
-"        C[row * N + col] = sum;\n"
-"    }\n"
-"}\n";
+#include "kernel_source.h"
+
+static const char *kernel_source = STRINGIFY(
+    __kernel void matmul(__global const int *A, __global const int *B, __global int *C, int N) {
+        int col = get_global_id(0);
+        int row = get_global_id(1);
+        if (row < N && col < N) {
+            int sum = 0;
+            for (int k = 0; k < 4; k++) {
+                sum += A[row * N + k] * B[k * N + col];
+            }
+            C[row * N + col] = sum;
+        }
+    }
+);
 
 static int check_error(cl_int err, const char *operation) {
     if (err != CL_SUCCESS) {
