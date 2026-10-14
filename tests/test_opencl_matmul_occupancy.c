@@ -6,7 +6,7 @@
 
 #define MATRIX_DIM 4
 #define BUFFER_SIZE 4096
-#define NUM_CASES 3
+#define NUM_CASES 6
 
 #include "kernel_source.h"
 
@@ -33,7 +33,7 @@ static int check_error(cl_int err, const char *operation) {
 }
 
 int main(void) {
-    // These cases use local=(2,1), so they dispatch 4, 8, and 16 blocks.
+    // local=(2,1): 2, 4, 8, 16, 32 and 64 blocks, including slot recycling.
     const size_t global_sizes[NUM_CASES][2] = {
         {4, 1},
         {4, 2},
@@ -43,9 +43,7 @@ int main(void) {
         {8, 16},
     };
     const char *case_names[NUM_CASES] = {
-        "4 blocks (below one-SM occupancy)",
-        "8 blocks (one-SM occupancy boundary)",
-        "16 blocks (multi-SM / recycle pressure)",
+        "2 blocks", "4 blocks", "8 blocks", "16 blocks", "32 blocks", "64 blocks",
     };
 
     int32_t *host_a = NULL;
@@ -140,12 +138,14 @@ int main(void) {
         }
 
         int case_failures = 0;
-        for (size_t row = 0; row < global_sizes[test_case][1]; row++) {
-            for (size_t col = 0; col < global_sizes[test_case][0]; col++) {
+        for (size_t row = 0; row < MATRIX_DIM; row++) {
+            for (size_t col = 0; col < MATRIX_DIM; col++) {
                 int32_t expected = 0;
-                for (int k = 0; k < MATRIX_DIM; k++) {
-                    expected += host_a[row * MATRIX_DIM + k] *
-                                host_b[k * MATRIX_DIM + col];
+                if (row < global_sizes[test_case][1] && col < global_sizes[test_case][0]) {
+                    for (int k = 0; k < MATRIX_DIM; k++) {
+                        expected += host_a[row * MATRIX_DIM + k] *
+                                    host_b[k * MATRIX_DIM + col];
+                    }
                 }
                 int index = (int)(row * MATRIX_DIM + col);
                 if (host_c[index] != expected) {
