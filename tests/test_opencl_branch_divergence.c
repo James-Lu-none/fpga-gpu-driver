@@ -94,6 +94,14 @@ int main(void) {
     // Headerless little-endian int32 data; compare without parsing console text.
     if (write_raw("branch_gpu.bin", h_C, NUM_ELEMENTS)) return 1;
     int mismatches = memcmp(h_C, expected, sizeof(expected)) != 0;
+    printf(" Thread ID | Input | Branch | Output | Expected | Status\n");
+    for (int i = 0; i < NUM_ELEMENTS; i++) {
+        printf(" Thread %2d | %5d | %6s | %6d | %8d | %s\n",
+               i, h_A[i], h_A[i] < 0 ? "taken" : "else", h_C[i], expected[i],
+               h_C[i] == expected[i] ? "PASS" : "FAIL");
+    }
+    printf("\nBranch divergence verification: %s (%d elements)\n",
+           mismatches ? "FAIL" : "PASS", NUM_ELEMENTS);
 
     clReleaseKernel(kernel);
     clReleaseProgram(program);
