@@ -56,6 +56,10 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
     free(kernarg_buf);
 
     // Step 3: Load Compiled Machine Code into GPU I-RAM
+    printf("[UMD] Loading %u Kernel words...\n", kernel->program->num_instructions);
+    for (uint32_t i = 0; i < kernel->program->num_instructions && i < 8; i++) {
+        printf("[UMD] Kernel word[%u] = 0x%08x\n", i, kernel->program->binary_words[i]);
+    }
     struct fpgagpu_kernel_binary kbin = {
         .user_instr_ptr = (uint64_t)(uintptr_t)kernel->program->binary_words,
         .instr_size     = kernel->program->num_instructions,
