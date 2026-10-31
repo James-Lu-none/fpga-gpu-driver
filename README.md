@@ -10,6 +10,19 @@ sudo ./tests/test_csr --require-ready /sys/bus/pci/devices/0000:01:00.0/resource
 make -C tests check-csr  # File-backed tests; no FPGA/root required.
 ```
 
+BAR0 debug map:
+
+```bash
+0x20010: magic
+0x20014: version
+0x20018: system status
+0x2001C: sticky faults status clear
+0x30000–0x30FFF: The read-only GPC alias
+```
+
+Status bits 0–9: DDR calibrated, MMCM locked, UI reset asserted, PCIe link up, CPU soft reset released, CPU trap, GPC busy, GPU completion pending, host IRQ pending, MSI enabled
+Fault bits 0–5: calibration lost, MMCM lock lost, link lost, CPU trap seen, GPU DDR AXI read error, GPU DDR AXI write error.
+
 ## 運作模式
 
 - **[Data Path]** User space 透過 `mmap()` 向驅動程式請求記憶體映射，驅動分配一塊 DMA Buffer 並直接映射給 User space
