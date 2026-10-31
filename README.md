@@ -1,5 +1,15 @@
 # PCIe FPGA GPU Liux Driver
 
+## System and GPC CSR diagnostics
+
+```bash
+make -C tests test_csr
+sudo ./tests/test_csr --json debug.json
+# Optional explicit endpoint and readiness gate:
+sudo ./tests/test_csr --require-ready /sys/bus/pci/devices/0000:01:00.0/resource0
+make -C tests check-csr  # File-backed tests; no FPGA/root required.
+```
+
 ## 運作模式
 
 - **[Data Path]** User space 透過 `mmap()` 向驅動程式請求記憶體映射，驅動分配一塊 DMA Buffer 並直接映射給 User space

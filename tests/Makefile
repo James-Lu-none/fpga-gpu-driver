@@ -5,9 +5,16 @@ TEST_COMMON = raw_data.c
 TEST_COMMON_HEADERS = raw_data.h
 CL_LDFLAGS = -L../umd -lfpgagpu_opencl -Wl,-rpath,../umd -pthread
 
-TESTS = test_ioctl test_dma test_opencl_buffer_copy test_opencl_vector_add test_opencl_matmul test_opencl_matmul_occupancy test_opencl_branch_divergence
+TESTS = test_csr test_ioctl test_dma test_opencl_buffer_copy test_opencl_vector_add test_opencl_matmul test_opencl_matmul_occupancy test_opencl_branch_divergence
 
 all: $(TESTS)
+
+test_csr: test_csr.c
+	$(CC) $(CFLAGS) $< -o $@
+
+.PHONY: check-csr
+check-csr:
+	python3 -m unittest discover -s . -p 'test_csr_reader.py'
 
 test_ioctl: test_ioctl.c
 	$(CC) $(CFLAGS) $< -o $@ -pthread
