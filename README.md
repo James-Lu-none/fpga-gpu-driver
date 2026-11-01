@@ -1,5 +1,21 @@
 # PCIe FPGA GPU Liux Driver
 
+## ISA memory tests
+
+```bash
+make -C tests test_isa_memory
+sudo ./tests/test_isa_memory store
+sudo ./tests/test_isa_memory copy
+sudo ./tests/test_isa_memory register
+```
+
+1. `store`: four ISA instructions write `0x1357` to DDR address `0x1000`.
+2. `copy`: read DDR address `0` and write its value to `0x1000`.
+3. `register`: use the same R1 as store data and store address, comparing both operand ports.
+
+- These bypass OpenCL, the compiler, kernarg, S2R, branches and multiplication.
+- Source/output pages are checked before launch; saved buffers include source/output guards.
+
 ## Minimal kernel tests
 
 ```bash
