@@ -27,12 +27,14 @@ static int dma(int fd, uint32_t direction, uint32_t address, void *buffer)
 int main(int argc, char **argv)
 {
     setvbuf(stdout, NULL, _IOLBF, 0);
-    if (argc != 2 || (strcmp(argv[1], "store") && strcmp(argv[1], "copy") && strcmp(argv[1], "register"))) {
-        fprintf(stderr, "Usage: %s store|copy|register\n", argv[0]);
+    if (argc != 2 || (strcmp(argv[1], "store") && strcmp(argv[1], "copy") &&
+                     strcmp(argv[1], "register") && strcmp(argv[1], "rs1-add"))) {
+        fprintf(stderr, "Usage: %s store|copy|register|rs1-add\n", argv[0]);
         return 2;
     }
     const int copy = !strcmp(argv[1], "copy");
     const int reg_test = !strcmp(argv[1], "register");
+    const int rs1_test = !strcmp(argv[1], "rs1-add");
     // Hand-encoded ISA: no compiler, kernarg, S2R, branch or multiply.
     // Both lanes use the same address/value: LSU performs one uniform store.
     const uint32_t store_code[] = {
@@ -53,15 +55,22 @@ int main(int argc, char **argv)
         0xA1004200, // STR R1, [R1]: read the same R1 through both operand ports
         0xFF000000, // EXIT
     };
-    const uint32_t *code = reg_test ? register_code : copy ? copy_code : store_code;
+    const uint32_t rs1_code[] = {
+        0x81081000, // ADDI R1, R0, 0x1000
+        0x01104000, // ADD R2, R1, R0: exercise rs1 through the ALU
+        0xA1000400, // STR R2, [R0]: fixed destination, bypass variable LSU address
+        0xFF000000, // EXIT
+    };
+    const uint32_t *code = rs1_test ? rs1_code : reg_test ? register_code : copy ? copy_code : store_code;
     _Alignas(4096) uint32_t input[WORDS], output[WORDS], expected[WORDS], scratch[WORDS];
     for (unsigned i = 0; i < WORDS; i++) {
         input[i] = 0x24681357u + i;
         output[i] = expected[i] = SENTINEL;
     }
-    expected[0] = reg_test ? OUTPUT_ADDR : copy ? input[0] : 0x1357;
+    expected[0] = rs1_test ? SENTINEL : reg_test ? OUTPUT_ADDR : copy ? input[0] : 0x1357;
     printf("ISA %s: source=0x%08x output=0x%08x; four instructions, one block\n",
            argv[1], SOURCE_ADDR, OUTPUT_ADDR);
+    if (rs1_test) puts("rs1-add result is written to address 0; the output page remains a guard");
     for (unsigned i = 0; i < 4; i++) printf("instruction[%u]=0x%08x\n", i, code[i]);
     int fd = open("/dev/fpgagpu0", O_RDWR);
     if (fd < 0) { perror("open /dev/fpgagpu0"); return 1; }
@@ -86,7 +95,7 @@ int main(int argc, char **argv)
     if (ioctl(fd, FPGAGPU_IOC_DOORBELL, 0) < 0) { perror("DOORBELL"); goto cleanup; }
     if (dma(fd, FPGAGPU_DMA_FROM_DEVICE, OUTPUT_ADDR, output) ||
         dma(fd, FPGAGPU_DMA_FROM_DEVICE, SOURCE_ADDR, scratch)) goto cleanup;
-    if (reg_test) input[0] = OUTPUT_ADDR; // This case intentionally writes address 0 too.
+    if (reg_test || rs1_test) input[0] = OUTPUT_ADDR; // These cases intentionally write address 0.
     printf("out[0]: expected=0x%08x actual=0x%08x%s\n", expected[0], output[0],
            output[0] == SENTINEL ? " (sentinel unchanged)" : "");
     printf("source[0]: expected=0x%08x actual=0x%08x\n", input[0], scratch[0]);
