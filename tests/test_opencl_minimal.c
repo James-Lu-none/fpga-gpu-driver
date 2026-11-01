@@ -1,157 +1,156 @@
+#define _POSIX_C_SOURCE 200112L
+#include <CL/cl.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
-#include <CL/cl.h>
-
-// 64 elements exercise multiple thread blocks, several cache lines, and the
-// LSU request FIFO while keeping the test small enough for quick iteration.
-#define NUM_ELEMENTS 2
-
+#include <string.h>
 #include "kernel_source.h"
+#include "raw_data.h"
 
-static const char *kernel_source = STRINGIFY(
-    __kernel void vector_add(__global int *A) {
-        int id = get_global_id(0);
-        A[id] = id;
-    }
-);
+#define WORDS 1024
+#define BYTES (WORDS * sizeof(int32_t))
+#define SENTINEL ((int32_t)0xA5A5A5A5u)
 
-int main(void) {
+static const struct {
+    const char *name;
+    const char *source;
+} cases[] = {
+    // Two-lane baseline: select one writer for fixed-address tests, avoiding a
+    // data race without using thread ID to calculate the destination address.
+    {"constant", STRINGIFY(__kernel void smoke(__global int *out) {
+        if (get_local_id(0) == 0) out[0] = 0x1357;
+    })},
+    {"scalar", STRINGIFY(__kernel void smoke(__global int *out, int value) {
+        if (get_local_id(0) == 0) out[0] = value;
+    })},
+    {"copy", STRINGIFY(__kernel void smoke(__global const int *input, __global int *out) {
+        if (get_local_id(0) == 0) out[0] = input[0];
+    })},
+    {"thread-id", STRINGIFY(__kernel void smoke(__global int *out) {
+        int id = get_local_id(0);
+        out[id] = id;
+    })},
+};
 
+#define CHECK(call) do { \
+    err = (call); \
+    if (err != CL_SUCCESS) { \
+        fprintf(stderr, "FAIL: %s (OpenCL error=%d)\n", #call, err); \
+        goto cleanup; \
+    } \
+} while (0)
+
+static int run_case(unsigned mode, cl_context context, cl_command_queue queue,
+                    cl_mem input_mem, cl_mem output_mem)
+{
+    _Alignas(4096) int32_t input[WORDS], output[WORDS], expected[WORDS], scratch[WORDS];
+    cl_program program = NULL;
+    cl_kernel kernel = NULL;
     cl_int err;
-    cl_platform_id platform = NULL;
-    cl_device_id device = NULL;
-    cl_uint num_platforms = 0, num_devices = 0;
-
-    // Step 1: Discover Platform and Device
-    err = clGetPlatformIDs(1, &platform, &num_platforms);
-    if (err != CL_SUCCESS || num_platforms == 0) {
-        fprintf(stderr, "Failed to find OpenCL platform (err=%d)\n", err);
-        return 1;
+    int failed = 1;
+    const int32_t scalar = 0x12345678;
+    const size_t global = 2, local = 2;
+    const char *source = cases[mode].source;
+    printf("\nMINIMAL: %s; one block, two lanes\n", cases[mode].name);
+    for (unsigned i = 0; i < WORDS; i++) {
+        input[i] = (int32_t)(0x24681357u + i);
+        output[i] = expected[i] = SENTINEL;
     }
+    expected[0] = mode == 0 ? 0x1357 : mode == 1 ? scalar : mode == 2 ? input[0] : 0;
+    if (mode == 3) expected[1] = 1;
 
-    char plat_name[128];
-    clGetPlatformInfo(platform, CL_PLATFORM_NAME, sizeof(plat_name), plat_name, NULL);
-    printf("[Step 1] Platform: %s\n", plat_name);
-
-    err = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, 1, &device, &num_devices);
-    if (err != CL_SUCCESS || num_devices == 0) {
-        fprintf(stderr, "Failed to find OpenCL device (err=%d)\n", err);
-        return 1;
+    CHECK(clEnqueueWriteBuffer(queue, input_mem, CL_TRUE, 0, BYTES, input, 0, NULL, NULL));
+    CHECK(clEnqueueWriteBuffer(queue, output_mem, CL_TRUE, 0, BYTES, output, 0, NULL, NULL));
+    CHECK(clEnqueueReadBuffer(queue, input_mem, CL_TRUE, 0, BYTES, scratch, 0, NULL, NULL));
+    if (memcmp(input, scratch, BYTES)) {
+        fprintf(stderr, "FAIL: input buffer DMA upload/readback mismatch before kernel launch\n");
+        goto cleanup;
     }
-
-    char dev_name[128];
-    clGetDeviceInfo(device, CL_DEVICE_NAME, sizeof(dev_name), dev_name, NULL);
-    printf("         Device:   %s\n\n", dev_name);
-
-    // Step 2: Create Context & Command Queue
-    printf("[Step 2] Creating OpenCL Context and Command Queue...\n");
-    cl_context context = clCreateContext(NULL, 1, &device, NULL, NULL, &err);
-    if (err != CL_SUCCESS || !context) {
-        fprintf(stderr, "clCreateContext failed (err=%d)\n", err);
-        return 1;
+    CHECK(clEnqueueReadBuffer(queue, output_mem, CL_TRUE, 0, BYTES, scratch, 0, NULL, NULL));
+    if (memcmp(output, scratch, BYTES)) {
+        fprintf(stderr, "FAIL: output sentinel DMA upload/readback mismatch before kernel launch\n");
+        goto cleanup;
     }
+    puts("PASS: input data and output sentinel verified in VRAM before launch");
 
-    cl_command_queue queue = clCreateCommandQueue(context, device, 0, &err);
-    if (err != CL_SUCCESS || !queue) {
-        fprintf(stderr, "clCreateCommandQueue failed (err=%d)\n", err);
-        clReleaseContext(context);
-        return 1;
-    }
-
-    // Step 3: Prepare Host Data and Buffers
-    printf("[Step 3] Allocating Device Memory and Uploading Host Data...\n");
-    int32_t *h_A = NULL;
-
-    if (posix_memalign((void **)&h_A, 4096, 4096) != 0) {
-        perror("posix_memalign failed");
-        return 1;
-    }
-
-    int32_t expected[NUM_ELEMENTS];
-    for (int i = 0; i < NUM_ELEMENTS; i++) {
-        h_A[i] = 0;
-        expected[i] = i;
-    }
-
-    cl_mem d_A = clCreateBuffer(context, CL_MEM_READ_ONLY, 4096, NULL, &err);
-
-    // Upload vectors A and B
-    clEnqueueWriteBuffer(queue, d_A, CL_TRUE, 0, 4096, h_A, 0, NULL, NULL);
-    printf("         Input vectors A & B transferred to VRAM via DMA.\n\n");
-
-    // Step 4: Build Program from OpenCL C Source (JIT Compilation)
-    printf("[Step 4] Compiling OpenCL C Kernel via LLVM Backend...\n");
-    cl_program program = clCreateProgramWithSource(context, 1, &kernel_source, NULL, &err);
-    if (err != CL_SUCCESS) {
-        fprintf(stderr, "clCreateProgramWithSource failed (err=%d)\n", err);
-        return 1;
-    }
-
-    err = clBuildProgram(program, 1, &device, NULL, NULL, NULL);
-    if (err != CL_SUCCESS) {
-        fprintf(stderr, "clBuildProgram failed (err=%d)\n", err);
-        return 1;
-    }
-
-    // Step 5: Create Kernel and Set Kernel Arguments
-    printf("[Step 5] Creating Kernel and Setting Arguments...\n");
-    cl_kernel kernel = clCreateKernel(program, "vector_add", &err);
-    if (err != CL_SUCCESS) {
-        fprintf(stderr, "clCreateKernel failed (err=%d)\n", err);
-        return 1;
-    }
-
-    clSetKernelArg(kernel, 0, sizeof(cl_mem), &d_A);
-
-    // Step 6: Launch Kernel (NDRange Dispatch)
-    printf("[Step 6] Enqueuing NDRange Kernel onto GPU...\n");
-    size_t global_work_size[1] = {NUM_ELEMENTS};
-    size_t local_work_size[1]  = {2}; // 2 threads per block
-
-    err = clEnqueueNDRangeKernel(queue, kernel, 1, NULL,
-                                 global_work_size, local_work_size,
-                                 0, NULL, NULL);
-    if (err != CL_SUCCESS) {
-        fprintf(stderr, "clEnqueueNDRangeKernel failed (err=%d)\n", err);
-        return 1;
-    }
-
-    // Step 7: Wait for Completion & Read Back Results
-    printf("[Step 7] Synchronizing Queue and Reading Back Output from VRAM...\n");
-    clFinish(queue);
-
-    err = clEnqueueReadBuffer(queue, d_A, CL_TRUE, 0, 4096, h_A, 0, NULL, NULL);
-    if (err != CL_SUCCESS) {
-        fprintf(stderr, "clEnqueueReadBuffer failed (err=%d)\n", err);
-        return 1;
-    }
-
-    // Step 8: Golden Verification
-    printf("\n[Step 8] Verification against CPU Golden Model:\n");
-    printf(" Thread ID | Vector A | Vector B | Output C | Expected | Status  \n");
-
-    int mismatches = 0;
-    for (int i = 0; i < NUM_ELEMENTS; i++) {
-        int pass = (h_A[i] == expected[i]);
-        if (!pass) mismatches++;
-        printf(" Thread %2d | %8d | %8d | %8d | %8d | %s\n",
-               i, h_A[i], expected[i], pass ? "PASS" : "FAIL ***");
-    }
-
-    // Cleanup
-    clReleaseKernel(kernel);
-    clReleaseProgram(program);
-    clReleaseMemObject(d_A);
-    clReleaseCommandQueue(queue);
-    clReleaseContext(context);
-    free(h_A);
-
-    if (mismatches == 0) {
-        printf("\n>>> SUCCESS! All %d elements computed correctly on FPGA-GPU! <<<\n\n", NUM_ELEMENTS);
-        return 0;
+    program = clCreateProgramWithSource(context, 1, &source, NULL, &err);
+    if (!program || err != CL_SUCCESS) goto cleanup;
+    CHECK(clBuildProgram(program, 0, NULL, NULL, NULL, NULL));
+    kernel = clCreateKernel(program, "smoke", &err);
+    if (!kernel || err != CL_SUCCESS) goto cleanup;
+    if (mode == 2) {
+        CHECK(clSetKernelArg(kernel, 0, sizeof(input_mem), &input_mem));
+        CHECK(clSetKernelArg(kernel, 1, sizeof(output_mem), &output_mem));
     } else {
-        printf("\n>>> FAILURE: %d mismatches found! <<<\n\n", mismatches);
-        return 1;
+        CHECK(clSetKernelArg(kernel, 0, sizeof(output_mem), &output_mem));
+        if (mode == 1) CHECK(clSetKernelArg(kernel, 1, sizeof(scalar), &scalar));
     }
+    CHECK(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &global, &local, 0, NULL, NULL));
+    CHECK(clFinish(queue));
+    CHECK(clEnqueueReadBuffer(queue, output_mem, CL_TRUE, 0, BYTES, output, 0, NULL, NULL));
+
+    char filename[96];
+    snprintf(filename, sizeof(filename), "minimal_%s_cpu.bin", cases[mode].name);
+    if (write_raw(filename, expected, WORDS)) goto cleanup;
+    snprintf(filename, sizeof(filename), "minimal_%s_gpu.bin", cases[mode].name);
+    if (write_raw(filename, output, WORDS)) goto cleanup;
+    printf("out[0]: expected=0x%08x actual=0x%08x\n", (uint32_t)expected[0], (uint32_t)output[0]);
+    printf("out[1]: expected=0x%08x actual=0x%08x\n", (uint32_t)expected[1], (uint32_t)output[1]);
+    unsigned mismatches = 0;
+    for (unsigned i = 0; i < WORDS; i++) {
+        if (output[i] != expected[i]) {
+            if (mismatches < 4)
+                printf("FAIL: word %u expected=0x%08x actual=0x%08x%s\n", i,
+                       (uint32_t)expected[i], (uint32_t)output[i],
+                       output[i] == SENTINEL ? " (sentinel unchanged)" : "");
+            mismatches++;
+        }
+    }
+    failed = mismatches != 0;
+    printf("%s: %s; %u mismatches, including untouched-buffer guards\n",
+           failed ? "FAIL" : "PASS", cases[mode].name, mismatches);
+cleanup:
+    if (failed && err != CL_SUCCESS) fprintf(stderr, "OpenCL status: %d\n", err);
+    if (kernel) clReleaseKernel(kernel);
+    if (program) clReleaseProgram(program);
+    return failed;
+}
+
+int main(int argc, char **argv)
+{
+    int selected = -1;
+    if (argc > 2) { fprintf(stderr, "Usage: %s [constant|scalar|copy|thread-id]\n", argv[0]); return 2; }
+    if (argc == 2) {
+        for (unsigned i = 0; i < sizeof(cases)/sizeof(cases[0]); i++)
+            if (!strcmp(argv[1], cases[i].name)) selected = (int)i;
+        if (selected < 0) { fprintf(stderr, "Unknown minimal test: %s\n", argv[1]); return 2; }
+    }
+    cl_platform_id platform;
+    cl_device_id device;
+    cl_context context = NULL;
+    cl_command_queue queue = NULL;
+    cl_mem input = NULL, output = NULL;
+    cl_int err = CL_SUCCESS;
+    int failed = 1;
+    CHECK(clGetPlatformIDs(1, &platform, NULL));
+    CHECK(clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, 1, &device, NULL));
+    context = clCreateContext(NULL, 1, &device, NULL, NULL, &err);
+    if (!context || err != CL_SUCCESS) goto cleanup;
+    queue = clCreateCommandQueue(context, device, 0, &err);
+    if (!queue || err != CL_SUCCESS) goto cleanup;
+    input = clCreateBuffer(context, CL_MEM_READ_ONLY, BYTES, NULL, &err);
+    if (!input || err != CL_SUCCESS) goto cleanup;
+    output = clCreateBuffer(context, CL_MEM_READ_WRITE, BYTES, NULL, &err);
+    if (!output || err != CL_SUCCESS) goto cleanup;
+    failed = 0;
+    for (unsigned i = 0; i < sizeof(cases)/sizeof(cases[0]); i++) {
+        if (selected >= 0 && (unsigned)selected != i) continue;
+        if (run_case(i, context, queue, input, output)) failed = 1;
+    }
+cleanup:
+    if (output) clReleaseMemObject(output);
+    if (input) clReleaseMemObject(input);
+    if (queue) clReleaseCommandQueue(queue);
+    if (context) clReleaseContext(context);
+    return failed;
 }

@@ -1,5 +1,24 @@
 # PCIe FPGA GPU Liux Driver
 
+## Minimal kernel tests
+
+```bash
+make -C tests test_opencl_minimal
+sudo ./tests/test_opencl_minimal constant
+sudo ./tests/test_opencl_minimal scalar
+sudo ./tests/test_opencl_minimal copy
+sudo ./tests/test_opencl_minimal thread-id
+```
+
+1. `constant`: lane 0 writes `0x1357` to `out[0]`.
+2. `scalar`: lane 0 writes scalar argument `0x12345678` to `out[0]`.
+3. `copy`: lane 0 copies `input[0]` to `out[0]`, without index arithmetic.
+4. `thread-id`: two lanes write local IDs `0` and `1` to separate output words.
+
+- Each case checks DMA upload/readback before launch and fills output with `0xA5A5A5A5`.
+- Verification includes untouched output guards; CPU/GPU buffers are saved as `minimal_*_cpu.bin` and `minimal_*_gpu.bin`.
+- No argument runs all four cases. Hardware CI runs them separately and reports all four before failing.
+
 ## System and GPC CSR diagnostics
 
 ```bash
