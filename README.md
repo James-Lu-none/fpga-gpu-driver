@@ -10,6 +10,12 @@
 - Each initializes three DDR pages, writes 4 KiB through the selected path and verifies the target plus both guard pages via Host DMA.
 - Logs completion count, AXI errors and first L1/L2/AXI addresses. Buffers are saved as `<path>_memory_cpu.bin` and `<path>_memory_gpu.bin`.
 
+## VRF isolation test
+
+- Build `make -C tests test_vrf`; run `sudo ./tests/test_vrf /sys/bus/pci/devices/0000:01:00.0/resource0` with the updated `l2` bitstream.
+- Checks both operand ports across 8 warps and R0-R31, same/different source registers, independent lane masks and metadata snapshots.
+- Prints R1 samples for each warp and details for mismatches. Uses BAR0 directly; no firmware, ALU, scheduler or DDR dependency.
+
 ## ISA memory tests
 
 ```bash

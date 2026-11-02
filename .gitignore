@@ -39,6 +39,7 @@ Module.symvers
 *~
 
 # tests
+test_vrf
 test_l2_memory
 test_csr
 test_opencl_minimal
