@@ -1,5 +1,10 @@
 # PCIe FPGA GPU Liux Driver
 
+## DMA range checks
+
+- DMA pins every page covered by the Host pointer and length, preserving the first-page offset and exact byte count. Partial page-pinning fails before starting hardware.
+- `test_dma` checks short and cross-page transfers, including Host and VRAM guards. `test_opencl_branch_divergence` verifies input/sentinel readback before kernel dispatch.
+
 ## Memory path diagnostic
 
 1. Load the updated `l2` diagnostic bitstream; firmware is not required.
