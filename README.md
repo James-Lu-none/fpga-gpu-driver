@@ -1,5 +1,10 @@
 # PCIe FPGA GPU Liux Driver
 
+## DMA range checks
+
+- DMA preserves the Host buffer page offset and exact transfer length. Partial page pinning fails before hardware starts.
+- `test_dma` verifies short and cross-page transfers with Host and VRAM guards. Branch divergence checks input and output sentinel readback before dispatch.
+
 ## 運作模式
 
 - **[Data Path]** User space 透過 `mmap()` 向驅動程式請求記憶體映射，驅動分配一塊 DMA Buffer 並直接映射給 User space

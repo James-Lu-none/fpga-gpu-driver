@@ -61,6 +61,21 @@ int main(void) {
     if (clEnqueueWriteBuffer(queue, d_A, CL_TRUE, 0, sizeof(h_A), h_A, 0, NULL, NULL) != CL_SUCCESS) return 1;
     if (clEnqueueWriteBuffer(queue, d_C, CL_TRUE, 0, sizeof(h_C), h_C, 0, NULL, NULL) != CL_SUCCESS) return 1;
 
+    // Keep the original small, unaligned Host buffers. Check actual VRAM
+    // contents before attributing a bad result to branch execution.
+    _Alignas(4096) int32_t precheck[1024];
+    if (clEnqueueReadBuffer(queue, d_A, CL_TRUE, 0, sizeof(h_A), precheck, 0, NULL, NULL) != CL_SUCCESS) return 1;
+    if (memcmp(precheck, h_A, sizeof(h_A))) {
+        fprintf(stderr, "FAIL: branch input DMA upload/readback before dispatch\n");
+        return 1;
+    }
+    if (clEnqueueReadBuffer(queue, d_C, CL_TRUE, 0, sizeof(h_C), precheck, 0, NULL, NULL) != CL_SUCCESS) return 1;
+    if (memcmp(precheck, h_C, sizeof(h_C))) {
+        fprintf(stderr, "FAIL: branch output sentinel DMA upload/readback before dispatch\n");
+        return 1;
+    }
+    puts("PASS: branch input and output sentinel verified in VRAM before dispatch");
+
     // Step 3: Compile OpenCL C Kernel
     cl_program program = clCreateProgramWithSource(context, 1, &kernel_source, NULL, NULL);
     err = clBuildProgram(program, 1, &device, NULL, NULL, NULL);
