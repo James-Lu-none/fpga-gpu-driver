@@ -1,13 +1,14 @@
 # PCIe FPGA GPU Liux Driver
 
-## L2 memory diagnostic
+## Memory path diagnostic
 
-1. Load the `l2` diagnostic bitstream; firmware is not required.
+1. Load the updated `l2` diagnostic bitstream; firmware is not required.
 2. Build/load the kernel driver and run `make -C tests test_l2_memory`.
-3. Run `sudo ./tests/test_l2_memory /sys/bus/pci/devices/0000:01:00.0/resource0`.
+3. Run `sudo ./tests/test_l2_memory /sys/bus/pci/devices/0000:01:00.0/resource0 l1`.
 
-- Host initializes three DDR pages with sentinel data, triggers the FPGA L2 writer and reads all pages back via DMA.
-- Checks the 4 KiB pattern at `0x1000`, both guard pages, completion count and AXI error status. Saves `l2_memory_cpu.bin` and `l2_memory_gpu.bin`.
+- Path argument: `l2` (default), `l1`, `lsu-uniform`, `lsu-pair`, `lsu-lane0`, `lsu-lane1`.
+- Each initializes three DDR pages, writes 4 KiB through the selected path and verifies the target plus both guard pages via Host DMA.
+- Logs completion count, AXI errors and first L1/L2/AXI addresses. Buffers are saved as `<path>_memory_cpu.bin` and `<path>_memory_gpu.bin`.
 
 ## ISA memory tests
 

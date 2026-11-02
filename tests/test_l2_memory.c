@@ -33,7 +33,18 @@ static double now(void)
 int main(int argc, char **argv)
 {
     setvbuf(stdout, NULL, _IOLBF, 0);
-    if (argc != 2) { fprintf(stderr, "Usage: %s /sys/bus/pci/devices/BDF/resource0\n", argv[0]); return 2; }
+    static const char *paths[] = {"l2", "l1", "lsu-uniform", "lsu-pair", "lsu-lane0", "lsu-lane1"};
+    static const unsigned requests[] = {128, 512, 1024, 512, 1024, 1024};
+    if (argc < 2 || argc > 3) {
+        fprintf(stderr, "Usage: %s /sys/bus/pci/devices/BDF/resource0 [l2|l1|lsu-uniform|lsu-pair|lsu-lane0|lsu-lane1]\n", argv[0]);
+        return 2;
+    }
+    unsigned path = 0;
+    if (argc == 3) {
+        for (; path < 6; path++) if (!strcmp(argv[2], paths[path])) break;
+        if (path == 6) { fprintf(stderr, "ERROR: Unknown memory path: %s\n", argv[2]); return 2; }
+    }
+    printf("Memory path: %s; target=0x1000-0x1fff; expected_requests=%u\n", paths[path], requests[path]);
     int bar = open(argv[1], O_RDWR | O_SYNC);
     if (bar < 0) { perror("open BAR0"); return 1; }
     void *mapping = mmap(NULL, MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, bar, 0);
@@ -45,6 +56,20 @@ int main(int argc, char **argv)
     printf("L2 diagnostic magic: 0x%08x\n", magic);
     if (magic != 0x4c325453) { puts("FAIL: Requires the l2 diagnostic bitstream; no DDR writes issued"); goto cleanup; }
     if (csr[0x18 / 4] & 1) { puts("FAIL: L2 writer is already busy"); goto cleanup; }
+    uint32_t capabilities = csr[0x28 / 4];
+    if (path != 0 && !(capabilities & (1u << path))) {
+        puts("FAIL: Bitstream does not support this path; rebuild the diagnostic image");
+        goto cleanup;
+    }
+    if (capabilities) {
+        csr[0x24 / 4] = path;
+        double selection_deadline = now() + 1;
+        while (csr[0x24 / 4] != path && now() < selection_deadline) {
+            struct timespec delay = {0, 1000000};
+            nanosleep(&delay, NULL);
+        }
+        if (csr[0x24 / 4] != path) { puts("FAIL: Path selection readback"); goto cleanup; }
+    }
     fd = open("/dev/fpgagpu0", O_RDWR);
     if (fd < 0) { perror("open /dev/fpgagpu0"); goto cleanup; }
     _Alignas(4096) uint32_t actual[3 * WORDS], expected[3 * WORDS];
@@ -68,8 +93,10 @@ int main(int argc, char **argv)
         status = csr[0x18 / 4];
     }
     uint32_t completed = csr[0x1c / 4];
-    printf("L2 writer: status=0x%08x completed_lines=%u/128\n", status, completed);
-    if (status != 2 || completed != 128 || csr[0x20 / 4] == previous_run) { puts("FAIL: L2 completion timeout or AXI write response error"); goto cleanup; }
+    printf("%s writer: status=0x%08x completed_requests=%u/%u\n", paths[path], status, completed, requests[path]);
+    printf("First addresses: seen=0x%x L1=0x%08x L2=0x%08x AXI=0x%08x\n",
+           csr[0x3c / 4], csr[0x30 / 4], csr[0x34 / 4], csr[0x38 / 4]);
+    if (status != 2 || completed != requests[path] || csr[0x20 / 4] == previous_run) { puts("FAIL: Memory path completion timeout or AXI write response error"); goto cleanup; }
     for (unsigned page = 0; page < 3; page++)
         if (dma(fd, FPGAGPU_DMA_FROM_DEVICE, page * 4096, &actual[page * WORDS])) goto cleanup;
     unsigned mismatches = 0;
@@ -80,11 +107,14 @@ int main(int argc, char **argv)
             mismatches++;
         }
     }
-    if (write_raw("l2_memory_cpu.bin", (int32_t *)expected, 3 * WORDS) ||
-        write_raw("l2_memory_gpu.bin", (int32_t *)actual, 3 * WORDS)) goto cleanup;
+    char file[96];
+    snprintf(file, sizeof(file), "%s_memory_cpu.bin", paths[path]);
+    if (write_raw(file, (int32_t *)expected, 3 * WORDS)) goto cleanup;
+    snprintf(file, sizeof(file), "%s_memory_gpu.bin", paths[path]);
+    if (write_raw(file, (int32_t *)actual, 3 * WORDS)) goto cleanup;
     failed = mismatches != 0;
-    printf("%s: L2 wrote 4096 bytes; Host verified target and both guards; mismatches=%u\n",
-           failed ? "FAIL" : "PASS", mismatches);
+    printf("%s: %s wrote 4096 bytes; Host verified target and both guards; mismatches=%u\n",
+           failed ? "FAIL" : "PASS", paths[path], mismatches);
 cleanup:
     if (fd >= 0) close(fd);
     munmap(mapping, MAP_SIZE);
