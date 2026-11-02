@@ -14,7 +14,7 @@
 
 - Build `make -C tests test_vrf`; run `sudo ./tests/test_vrf /sys/bus/pci/devices/0000:01:00.0/resource0` with the updated `l2` bitstream.
 - Checks both operand ports across 8 warps and R0-R31, same/different source registers, independent lane masks and metadata snapshots.
-- Prints R1 samples for each warp and details for mismatches. Uses BAR0 directly; no firmware, ALU, scheduler or DDR dependency.
+- Prints R1 samples, aligned read addresses/R0-select flags, raw BRAM values and details for mismatches. Uses BAR0 directly; no firmware, ALU, scheduler or DDR dependency.
 
 ## ISA memory tests
 

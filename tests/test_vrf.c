@@ -53,7 +53,13 @@ static int check_registers(unsigned warp, unsigned rs1, unsigned rs2, int sample
     uint32_t expected[4] = {golden[warp][rs1][0], golden[warp][rs1][1],
                             golden[warp][rs2][0], golden[warp][rs2][1]};
     uint32_t metadata = csr[0x74/4], actual_tag = csr[0x78/4], flags = csr[0x7c/4];
-    unsigned bad = 0;
+    uint32_t select = csr[0x88/4];
+    uint32_t raw[4] = {csr[0x8c/4], csr[0x90/4], csr[0x94/4], csr[0x98/4]};
+    uint32_t expected_select = (warp << 5) | rs1 | (((warp << 5) | rs2) << 8) |
+                               (!rs1 ? 0x10000u : 0) | (!rs2 ? 0x20000u : 0);
+    unsigned bad = select != expected_select;
+    if (rs1) bad |= raw[0] != expected[0] || raw[1] != expected[1];
+    if (rs2) bad |= raw[2] != expected[2] || raw[3] != expected[3];
     for (unsigned i = 0; i < 4; i++) bad |= values[i] != expected[i];
     bad |= metadata != ((warp << 16) | (tag & 0xfff));
     bad |= actual_tag != tag || flags != 0x00a10003;
@@ -61,6 +67,8 @@ static int check_registers(unsigned warp, unsigned rs1, unsigned rs2, int sample
         printf("%s: warp=%u rs1=R%u [%08x,%08x] expected=[%08x,%08x]; rs2=R%u [%08x,%08x] expected=[%08x,%08x]\n",
                bad ? "FAIL" : "SAMPLE", warp, rs1, values[0], values[1], expected[0], expected[1],
                rs2, values[2], values[3], expected[2], expected[3]);
+        printf("VRF stages: select=%08x expected=%08x raw_rs1=[%08x,%08x] raw_rs2=[%08x,%08x]\n",
+               select, expected_select, raw[0], raw[1], raw[2], raw[3]);
         if (bad) printf("metadata=%08x tag=%08x expected_tag=%08x flags=%08x\n", metadata, actual_tag, tag, flags);
     }
     checks++;
@@ -80,8 +88,8 @@ int main(int argc, char **argv)
     int failed = 1;
     uint32_t magic = csr[0x40/4], geometry = csr[0x80/4];
     printf("VRF probe: magic=0x%08x geometry=0x%08x\n", magic, geometry);
-    if (magic != 0x56524631 || geometry != 0x00020820) {
-        puts("FAIL: Requires updated l2 diagnostic bitstream (8 warps, 32 registers, 2 lanes)");
+    if (magic != 0x56524631 || geometry != 0x00020820 || csr[0x84/4] != 1) {
+        puts("FAIL: Requires updated l2 diagnostic bitstream with VRF internal-stage snapshots");
         goto cleanup;
     }
     if (csr[0x18/4] & 1) { puts("FAIL: Memory writer is busy"); goto cleanup; }
