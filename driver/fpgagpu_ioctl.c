@@ -12,6 +12,7 @@ long fpgagpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         case fpgagpu_IOC_DMA_TRANSFER: {
             struct fpgagpu_dma_param dma_param;
             int num_pages, i;
+            unsigned int page_offset, remaining;
             u32 chan_ctrl, chan_status, chan_sg_lo, chan_sg_hi, chan_sg_adj;
             enum dma_data_direction dma_dir;
             unsigned int gup_flags;
@@ -30,7 +31,10 @@ long fpgagpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 return -EINVAL;
             }
 
-            num_pages = (dma_param.size + PAGE_SIZE - 1) / PAGE_SIZE;
+            if (dma_param.host_vaddr > (u64)ULONG_MAX - (dma_param.size - 1))
+                return -EINVAL;
+            page_offset = offset_in_page((unsigned long)dma_param.host_vaddr);
+            num_pages = DIV_ROUND_UP(page_offset + dma_param.size, PAGE_SIZE);
             if (num_pages > 8192) return -EINVAL;
 
             if (dma_param.direction == fpgagpu_DMA_TO_DEVICE) {
@@ -54,11 +58,17 @@ long fpgagpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             }
 
             // Pin user pages in RAM
-            dev->num_pinned_pages = get_user_pages_fast(dma_param.host_vaddr, num_pages, 
+            dev->num_pinned_pages = get_user_pages_fast((unsigned long)dma_param.host_vaddr & PAGE_MASK, num_pages,
                                                         gup_flags, dev->pinned_pages);
             if (dev->num_pinned_pages < 0) {
                 pr_err("fpgagpu-Core: get_user_pages_fast failed: %d\n", dev->num_pinned_pages);
                 return dev->num_pinned_pages;
+            }
+            if (dev->num_pinned_pages != num_pages) {
+                for (i = 0; i < dev->num_pinned_pages; i++)
+                    put_page(dev->pinned_pages[i]);
+                dev->num_pinned_pages = 0;
+                return -EFAULT;
             }
 
             dev->sgl = kmalloc_array(dev->num_pinned_pages, sizeof(struct scatterlist), GFP_KERNEL);
@@ -69,8 +79,12 @@ long fpgagpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             }
 
             sg_init_table(dev->sgl, dev->num_pinned_pages);
+            remaining = dma_param.size;
             for (i = 0; i < dev->num_pinned_pages; i++) {
-                sg_set_page(&dev->sgl[i], dev->pinned_pages[i], PAGE_SIZE, 0);
+                unsigned int length = min_t(unsigned int, remaining, PAGE_SIZE - page_offset);
+                sg_set_page(&dev->sgl[i], dev->pinned_pages[i], length, page_offset);
+                remaining -= length;
+                page_offset = 0;
             }
 
             dev->sgl_nents = dma_map_sg(&dev->pci_dev->dev, dev->sgl, dev->num_pinned_pages, dma_dir);
