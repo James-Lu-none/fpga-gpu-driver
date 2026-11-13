@@ -33,17 +33,18 @@ static int check_error(cl_int err, const char *operation) {
 }
 
 int main(void) {
-    // local=(2,1): 2, 4, 8, 16, 32 and 64 blocks, including slot recycling.
+    // 1, 2, 4, 8, 16, and 32 blocks.
+    size_t local_size[2] = {4, 4};
     const size_t global_sizes[NUM_CASES][2] = {
-        {4, 1},
-        {4, 2},
         {4, 4},
         {4, 8},
-        {4, 16},
+        {8, 8},
         {8, 16},
+        {16, 16},
+        {16, 32}, // 16*32 = 512 work-items (threads) -> (16/4, 32/4) = (4, 8) -> 32 blocks
     };
     const char *case_names[NUM_CASES] = {
-        "2 blocks", "4 blocks", "8 blocks", "16 blocks", "32 blocks", "64 blocks",
+        "1 block", "2 blocks", "4 blocks", "8 blocks", "16 blocks", "32 blocks",
     };
 
     int32_t *host_a = NULL;
@@ -105,7 +106,7 @@ int main(void) {
 
     int failures = 0;
     for (int test_case = 0; test_case < NUM_CASES; test_case++) {
-        printf("[Case %d/%d] %s, Grid=(%zu,%zu), Block=(2,1)\n",
+        printf("[Case %d/%d] %s, Grid=(%zu,%zu), Block=(4,4)\n",
                test_case + 1, NUM_CASES, case_names[test_case],
                global_sizes[test_case][0], global_sizes[test_case][1]);
 
@@ -117,7 +118,6 @@ int main(void) {
             continue;
         }
 
-        size_t local_size[2] = {2, 1};
         err = clEnqueueNDRangeKernel(queue, kernel, 2, NULL,
                                      global_sizes[test_case], local_size,
                                      0, NULL, NULL);

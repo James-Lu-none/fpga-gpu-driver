@@ -90,9 +90,9 @@ int main(void) {
     if (clSetKernelArg(kernel, 0, sizeof(cl_mem), &d_A) != CL_SUCCESS) return 1;
     if (clSetKernelArg(kernel, 1, sizeof(cl_mem), &d_C) != CL_SUCCESS) return 1;
 
-    // Step 5: Launch 1D NDRange Kernel
+    // Step 5: Launch 1D NDRange Kernel (16 lanes per block)
     size_t global_work_size[1] = {NUM_ELEMENTS};
-    size_t local_work_size[1] = {2};
+    size_t local_work_size[1] = {16};
 
     err = clEnqueueNDRangeKernel(queue, kernel, 1, NULL,
                                  global_work_size, local_work_size,

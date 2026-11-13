@@ -113,7 +113,7 @@ int main(void) {
 
     // Step 5: Launch 2D NDRange Kernel
     size_t global_work_size[2] = {MATRIX_DIM, MATRIX_DIM};
-    size_t local_work_size[2]  = {2, 1};
+    size_t local_work_size[2]  = {4, 4};
 
     err = clEnqueueNDRangeKernel(queue, kernel, 2, NULL,
                                  global_work_size, local_work_size,

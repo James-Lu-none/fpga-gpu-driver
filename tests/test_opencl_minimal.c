@@ -5,7 +5,7 @@
 
 // 64 elements exercise multiple thread blocks, several cache lines, and the
 // LSU request FIFO while keeping the test small enough for quick iteration.
-#define NUM_ELEMENTS 2
+#define NUM_ELEMENTS 16
 
 #include "kernel_source.h"
 
@@ -107,7 +107,7 @@ int main(void) {
     // Step 6: Launch Kernel (NDRange Dispatch)
     printf("[Step 6] Enqueuing NDRange Kernel onto GPU...\n");
     size_t global_work_size[1] = {NUM_ELEMENTS};
-    size_t local_work_size[1]  = {2}; // 2 threads per block
+    size_t local_work_size[1]  = {16}; // 16 threads per block
 
     err = clEnqueueNDRangeKernel(queue, kernel, 1, NULL,
                                  global_work_size, local_work_size,

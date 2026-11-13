@@ -123,7 +123,7 @@ int main(void) {
     // Step 6: Launch Kernel (NDRange Dispatch)
     printf("[Step 6] Enqueuing NDRange Kernel onto GPU...\n");
     size_t global_work_size[1] = {NUM_ELEMENTS};
-    size_t local_work_size[1]  = {2}; // 2 threads per block
+    size_t local_work_size[1]  = {16}; // 16 threads per block (full 16-lane warp)
 
     err = clEnqueueNDRangeKernel(queue, kernel, 1, NULL,
                                  global_work_size, local_work_size,
