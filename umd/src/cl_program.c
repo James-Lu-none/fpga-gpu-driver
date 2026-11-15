@@ -49,6 +49,8 @@ clCreateProgramWithSource(cl_context context,
     prog->binary_words = NULL;
     prog->num_instructions = 0;
     prog->is_built = false;
+    prog->compiled_block_x = 0;
+    prog->compiled_block_y = 0;
     prog->ref_count = 1;
 
     if (errcode_ret) *errcode_ret = CL_SUCCESS;
@@ -67,19 +69,8 @@ clReleaseProgram(cl_program program) {
     return CL_SUCCESS;
 }
 
-CL_API_ENTRY cl_int CL_API_CALL
-clBuildProgram(cl_program program,
-               cl_uint num_devices,
-               const cl_device_id *device_list,
-               const char *options,
-               void (CL_CALLBACK *pfn_notify)(cl_program program, void *user_data),
-               void *user_data) {
-    (void)num_devices;
-    (void)device_list;
-    (void)options;
-    (void)pfn_notify;
-    (void)user_data;
-
+cl_int
+fpgagpu_compile_program(cl_program program, uint32_t block_x, uint32_t block_y) {
     if (!program) return CL_INVALID_PROGRAM;
 
     // 1. Write kernel source to temporary file
@@ -93,15 +84,16 @@ clBuildProgram(cl_program program,
         return CL_COMPILER_NOT_AVAILABLE;
     }
 
-    // Prepend device_intrinsics.h include if not present
-    const char *header_include = "#include \"device_intrinsics.h\"\n";
-    if (strstr(program->source, "device_intrinsics.h") == NULL) {
-        if (write(fd, header_include, strlen(header_include)) < 0) {
-            close(fd);
-            unlink(src_tmpl);
-            return CL_BUILD_PROGRAM_FAILURE;
-        }
+    // Prepend block dimensions and device_intrinsics.h
+    char header[256];
+    snprintf(header, sizeof(header), "#define BLOCK_DIM_X %u\n#define BLOCK_DIM_Y %u\n#include \"device_intrinsics.h\"\n",
+             block_x, block_y);
+    if (write(fd, header, strlen(header)) < 0) {
+        close(fd);
+        unlink(src_tmpl);
+        return CL_BUILD_PROGRAM_FAILURE;
     }
+
     if (write(fd, program->source, program->source_len) < 0) {
         close(fd);
         unlink(src_tmpl);
@@ -124,8 +116,10 @@ clBuildProgram(cl_program program,
 
     // 3. Compile kernel to raw binary machine code (.bin)
     char cmd[2048];
-    snprintf(cmd, sizeof(cmd), "%s -b %s -o %s > /dev/null 2>&1", compiler_script, src_tmpl, bin_path);
-    printf("[UMD] Compiling OpenCL C Kernel via LLVM Backend: %s\n", compiler_script);
+    snprintf(cmd, sizeof(cmd), "%s -DBLOCK_DIM_X=%u -DBLOCK_DIM_Y=%u -b %s -o %s > /dev/null 2>&1",
+             compiler_script, block_x, block_y, src_tmpl, bin_path);
+    printf("[UMD] Compiling OpenCL C Kernel via LLVM Backend: %s (Block=%u,%u)\n",
+           compiler_script, block_x, block_y);
 
     int ret = system(cmd);
     if (ret != 0) {
@@ -156,7 +150,10 @@ clBuildProgram(cl_program program,
         return CL_BUILD_PROGRAM_FAILURE;
     }
 
-    if (program->binary_words) free(program->binary_words);
+    if (program->binary_words) {
+        free(program->binary_words);
+        program->binary_words = NULL;
+    }
     program->binary_words = (uint32_t *)malloc(fsize);
     if (!program->binary_words) {
         fclose(bf);
@@ -175,6 +172,8 @@ clBuildProgram(cl_program program,
 
     program->num_instructions = (uint32_t)(fsize / 4);
     program->is_built = true;
+    program->compiled_block_x = block_x;
+    program->compiled_block_y = block_y;
 
     fclose(bf);
     unlink(src_tmpl);
@@ -183,4 +182,22 @@ clBuildProgram(cl_program program,
     printf("[UMD] Kernel built successfully: %u ISA instructions (%ld bytes)\n",
            program->num_instructions, fsize);
     return CL_SUCCESS;
+}
+
+CL_API_ENTRY cl_int CL_API_CALL
+clBuildProgram(cl_program program,
+               cl_uint num_devices,
+               const cl_device_id *device_list,
+               const char *options,
+               void (CL_CALLBACK *pfn_notify)(cl_program program, void *user_data),
+               void *user_data) {
+    (void)num_devices;
+    (void)device_list;
+    (void)options;
+    (void)pfn_notify;
+    (void)user_data;
+
+    if (!program) return CL_INVALID_PROGRAM;
+
+    return fpgagpu_compile_program(program, 16, 1);
 }

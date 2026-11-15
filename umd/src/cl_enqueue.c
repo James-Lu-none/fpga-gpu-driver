@@ -55,7 +55,23 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
     }
     free(kernarg_buf);
 
-    // Step 3: Load Compiled Machine Code into GPU I-RAM
+    // Step 3: Calculate Grid & Block (Workgroup) Dimensions
+    // Baseline: 16 lanes per warp/block in physical SIMD datapath
+    uint32_t block_x = (local_work_size && local_work_size[0] > 0) ? (uint32_t)local_work_size[0] : 16;
+    uint32_t block_y = (work_dim > 1 && local_work_size && local_work_size[1] > 0) ? (uint32_t)local_work_size[1] : 1;
+
+    // JIT compile/recompile kernel if block dimensions differ from build time
+    if (!kernel->program->is_built ||
+        kernel->program->compiled_block_x != block_x ||
+        kernel->program->compiled_block_y != block_y) {
+        cl_int err = fpgagpu_compile_program(kernel->program, block_x, block_y);
+        if (err != CL_SUCCESS) {
+            fprintf(stderr, "[UMD] Failed to compile kernel for Block=(%u, %u)\n", block_x, block_y);
+            return CL_BUILD_PROGRAM_FAILURE;
+        }
+    }
+
+    // Step 4: Load Compiled Machine Code into GPU I-RAM
     struct fpgagpu_kernel_binary kbin = {
         .user_instr_ptr = (uint64_t)(uintptr_t)kernel->program->binary_words,
         .instr_size     = kernel->program->num_instructions,
@@ -66,11 +82,6 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
         perror("[UMD] Failed to load kernel into GPU I-RAM");
         return CL_OUT_OF_RESOURCES;
     }
-
-    // Step 4: Calculate Grid & Block (Workgroup) Dimensions
-    // Hardware baseline: 2 lanes per warp/block in physical SIMD datapath
-    uint32_t block_x = (local_work_size && local_work_size[0] > 0) ? (uint32_t)local_work_size[0] : 2;
-    uint32_t block_y = (work_dim > 1 && local_work_size && local_work_size[1] > 0) ? (uint32_t)local_work_size[1] : 1;
 
     uint32_t grid_x = (uint32_t)((global_work_size[0] + block_x - 1) / block_x);
     uint32_t grid_y = (work_dim > 1) ? (uint32_t)((global_work_size[1] + block_y - 1) / block_y) : 1;

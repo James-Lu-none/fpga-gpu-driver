@@ -76,6 +76,8 @@ struct _cl_program {
     uint32_t *binary_words;
     uint32_t num_instructions;
     bool is_built;
+    uint32_t compiled_block_x;
+    uint32_t compiled_block_y;
     cl_uint ref_count;
 };
 
@@ -109,5 +111,8 @@ struct _cl_event {
 uint64_t fpgagpu_vram_alloc(size_t size);
 void fpgagpu_vram_free(uint64_t addr, size_t size);
 void fpgagpu_vram_init(void);
+
+/* Compiler / Program JIT API */
+cl_int fpgagpu_compile_program(cl_program program, uint32_t block_x, uint32_t block_y);
 
 #endif /* _FPGAGPU_UMD_H */
