@@ -108,6 +108,7 @@ static int prepare_or_check(const struct job jobs[2], int check)
         uint8_t *buf = NULL;
         if (posix_memalign((void **)&buf, j->page, j->vram_span)) {
             fprintf(stderr, "VRAM image allocation failed\n");
+            ret = -1;
             goto out;
         }
         if (!check) {
