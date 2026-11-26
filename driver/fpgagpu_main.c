@@ -152,10 +152,6 @@ static int fpgagpu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
         result = -ENOMEM;
         goto err_regions;
     }
-    // platform_device uses pdev->id to identify each device, which corresponds to minor number
-    // dev->minor = pdev->id;
-    // dev->pdev = pdev;
-    // platform_set_drvdata(pdev, dev);
 
     // Map BAR0 for CSRs & BRAM (AXI Lite registers)
     // see page 292 of https://bootlin.com/doc/training/linux-kernel/linux-kernel-slides.pdf

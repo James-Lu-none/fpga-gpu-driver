@@ -18,12 +18,7 @@ clCreateContext(const cl_context_properties *properties,
 
     int fd = open("/dev/fpgagpu0", O_RDWR);
     if (fd < 0) {
-        // Fallback to legacy device node
-        fd = open("/dev/fpgagpu0", O_RDWR);
-    }
-
-    if (fd < 0) {
-        perror("[UMD] Failed to open /dev/fpgagpu0 or /dev/fpgagpu0");
+        perror("[UMD] Failed to open /dev/fpgagpu0");
         if (errcode_ret) *errcode_ret = CL_DEVICE_NOT_AVAILABLE;
         return NULL;
     }

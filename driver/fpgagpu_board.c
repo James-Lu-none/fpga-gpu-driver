@@ -1,7 +1,7 @@
 /*
-
-deprecated as new setup uses real pci device instead of virtualized platform device
-
+ * Deprecated: The current driver uses real PCIe XDMA device instead of virtualized platform device.
+ */
+#if 0
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include "../include/kmd/fpgagpu_core.h"

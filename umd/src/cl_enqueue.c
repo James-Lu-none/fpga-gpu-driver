@@ -36,8 +36,8 @@ clEnqueueNDRangeKernel(cl_command_queue command_queue,
         }
         kernarg_buf[i * 2 + 0] = kernel->args[i].scalar_val;
         kernarg_buf[i * 2 + 1] = kernel->args[i].scalar_val;
-        printf("[UMD] Kernarg[%u] = 0x%08x (lane0/lane1 offset 0x%x/0x%x)\n",
-               i, kernel->args[i].scalar_val, (i * 8), (i * 8 + 4));
+        printf("[UMD] Kernarg[%u] = 0x%08x (offset 0x%x)\n",
+               i, kernel->args[i].scalar_val, (i * 8));
     }
 
     // Step 2: Upload Kernarg Buffer to DDR3 at FPGAGPU_KERNARG_BASE (0x00000000)

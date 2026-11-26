@@ -5,7 +5,6 @@ int fpgagpu_mmap(struct file *file, struct vm_area_struct *vma)
     struct fpgagpu_context *ctx = file->private_data;
     struct fpgagpu_dev *dev = ctx->dev;
     size_t size = vma->vm_end - vma->vm_start;
-    unsigned long pfn;
 
     pr_info("fpgagpu-Core: mmap called on fpgagpu%d, size: %zu, pgoff: %lu\n", dev->minor, size, vma->vm_pgoff);
 

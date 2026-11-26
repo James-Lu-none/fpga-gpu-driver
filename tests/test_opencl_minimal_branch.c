@@ -8,7 +8,7 @@
 #include "kernel_source.h"
 #include "raw_data.h"
 
-// Adjacent work-items have opposite signs, so every two-lane warp diverges.
+// Adjacent work-items have opposite signs, causing warp divergence.
 // Volatile gpu_store32 intrinsics preserve the two branch paths during optimization.
 static const char *kernel_source = STRINGIFY(
     __kernel void branch_divergence(__global const int *input, __global int *output) {

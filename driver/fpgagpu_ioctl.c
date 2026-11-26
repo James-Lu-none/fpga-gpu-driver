@@ -177,7 +177,7 @@ long fpgagpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 
                 /* 
                  * Build Hardware Task Descriptor (64 bytes)
-                 * Direct mapped to PicoRV32's cuda_task_descriptor_t
+                 * Direct mapped to PicoRV32's fpgagpu_dispatch_packet
                  */
                 struct fpgagpu_dispatch_packet task = {};
                 task.magic        = FPGAGPU_MAGIC_OCL; /* "OCL1" */
