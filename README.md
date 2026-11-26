@@ -5,6 +5,50 @@
 - DMA preserves the Host buffer page offset and exact transfer length. Partial page pinning fails before hardware starts.
 - `test_dma` verifies short and cross-page transfers with Host and VRAM guards. Branch divergence checks input and output sentinel readback before dispatch.
 
+## Concurrent DMA regression (manual, destructive)
+
+The existing range test issues synchronous ioctls from one process. The
+new test_dma_concurrent is an opt-in HIL regression for the known
+device-global DMA state race. It does not fix the driver.
+
+WARNING: the current driver can corrupt host memory, hang or crash under
+concurrent DMA. Run only on a dedicated idle HIL host with recovery
+available, no other GPU users, and no valuable data in the test VRAM.
+Do not add this test to unattended CI/HIL or run on production systems.
+
+Build explicitly with:
+
+    make -C tests test_dma_concurrent
+
+After loading the existing driver, run deliberately:
+
+    sudo ./tests/test_dma_concurrent --run --mode h2c --rounds 1
+
+After a driver fix, or on a disposable test host if the risk is accepted,
+the complete suite is:
+
+    sudo ./tests/test_dma_concurrent --run --mode all --rounds 8
+
+Two forked workers independently open /dev/fpgagpu0 and allocate guarded
+unaligned host buffers. A parent-controlled readiness/start handshake
+releases both workers to issue DMA_TRANSFER ioctls. Cases cover H2C+H2C,
+C2H+C2H and H2C+C2H (mixed direction alternates roles across rounds).
+Short and larger cross-page payloads alternate. Each worker has a
+different VRAM region (starting at 0x10000000 or 0x11000000), so UMD
+allocator overlap cannot explain failures. The parent initializes VRAM
+serially and verifies exact payloads and guards serially after both
+workers succeed. The workers also verify host payloads and guards.
+
+No simultaneous hardware execution is required by the test; a correct
+driver may serialize requests. The handshake encourages overlapping
+ioctl calls but does not prove actual kernel/hardware overlap. Passing
+does not prove race freedom. A worker watchdog detects some hangs but
+cannot recover a stuck kernel or safely stop in-flight DMA; parent-side
+serial ioctls are not covered by that watchdog. On any reported failure
+the harness stops submitting further requests. Preserve logs and recover
+the test machine before retrying. No UMD, compute scheduling, device
+isolation, or runtime PM validation is implied.
+
 ## 運作模式
 
 - **[Data Path]** User space 透過 `mmap()` 向驅動程式請求記憶體映射，驅動分配一塊 DMA Buffer 並直接映射給 User space

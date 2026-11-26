@@ -28,9 +28,13 @@ test_opencl_matmul_occupancy: test_opencl_matmul_occupancy.c kernel_source.h $(T
 	$(CC) $(CL_CFLAGS) $< $(TEST_COMMON) -o $@ $(CL_LDFLAGS)
 
 clean:
-	rm -f $(TESTS)
+	rm -f $(TESTS) test_dma_concurrent
 
 .PHONY: all clean
 
 test_opencl_branch_divergence: test_opencl_branch_divergence.c kernel_source.h $(TEST_COMMON) $(TEST_COMMON_HEADERS)
 	$(CC) $(CL_CFLAGS) $< $(TEST_COMMON) -o $@ $(CL_LDFLAGS)
+
+# Manual destructive regression: deliberately not included in all/automatic HIL.
+test_dma_concurrent: test_dma_concurrent.c ../include/uapi/fpgagpu_ioctl.h
+	$(CC) $(CFLAGS) $< -o $@
