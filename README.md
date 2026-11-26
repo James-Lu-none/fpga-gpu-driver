@@ -58,6 +58,48 @@ the harness stops submitting further requests. Preserve logs and recover
 the test machine before retrying. No UMD, compute scheduling, device
 isolation, or runtime PM validation is implied.
 
+## Multiprocess VRAM and kernel instruction isolation
+
+Two independent regressions are built by the normal tests Makefile.
+Run on an idle, recoverable FPGA HIL host with the existing driver loaded.
+Both use deterministic parent/child handshakes; only one worker issues
+device operations at a time. No concurrent DMA is needed.
+
+- test_opencl_multiprocess_memory: two independent OpenCL contexts keep
+  their buffers alive, write distinct patterns, and read back their own
+  data. A is checked before B allocates, B is checked after its write,
+  and A is checked again after B's write. A mismatch matching B's
+  pattern indicates likely cross-process allocation aliasing.
+- test_multiprocess_kernel: builds two distinct kernels using the actual
+  UMD LLVM backend (requires the same FPGAGPU_COMPILER_DIR environment
+  as the other OpenCL tests). Uses the compiled ISA via LOAD_KERNEL and
+  SUBMIT_CMD ioctls, with separate raw VRAM regions and serial kernarg
+  uploads. Each kernel must first pass alone, then A loads, B loads,
+  and A dispatches without reloading; the reverse order is also tested
+  if the first passes. Output payload and guard words are checked.
+  The test expects per-context instruction ownership; the existing API
+  and driver do not guarantee this. It does not fix the driver or test
+  concurrent staging writes or shared kernarg races.
+
+Run independently from the tests directory (existing relative UMD rpath):
+
+    make -C ../umd
+    make test_opencl_multiprocess_memory test_multiprocess_kernel
+    sudo ./test_opencl_multiprocess_memory
+    sudo --preserve-env=FPGAGPU_COMPILER_DIR ./test_multiprocess_kernel
+
+Existing test_opencl_buffer_copy and test_opencl_vector_add automatically
+run the respective isolation test as a fresh executable after their
+baseline succeeds. Nonzero child exit status propagates to the existing
+test entry point. The main project's HIL shell can remain unchanged.
+Its fail-fast ordering means an earlier failure (including concurrent
+DMA or VRAM isolation) can prevent the later test from running; use the
+standalone binaries to diagnose each failure independently. The current
+unfixed prototype is expected to fail these tests; a failed baseline,
+timeout or device error is reported as failure, not as proof of the
+specific isolation bug. External recovery is still needed for kernel
+hangs. Scratch VRAM is overwritten.
+
 ## 運作模式
 
 - **[Data Path]** User space 透過 `mmap()` 向驅動程式請求記憶體映射，驅動分配一塊 DMA Buffer 並直接映射給 User space

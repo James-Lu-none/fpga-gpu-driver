@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <CL/cl.h>
+#include "run_sibling_test.h"
 
 #define TEST_SIZE 4096
 
@@ -71,7 +72,7 @@ int main(void) {
 
     if (mismatches == 0) {
         printf(">>> SUCCESS: 4KB Buffer Copy & Synchronization 100%% Matched! <<<\n\n");
-        return 0;
+        return run_sibling_test("test_opencl_multiprocess_memory");
     }
 
     printf(">>> FAILURE: %d byte mismatches detected! <<<\n\n", mismatches);

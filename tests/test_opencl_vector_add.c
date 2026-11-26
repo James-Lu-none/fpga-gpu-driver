@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <CL/cl.h>
+#include "run_sibling_test.h"
 
 // 64 elements exercise multiple thread blocks, several cache lines, and the
 // LSU request FIFO while keeping the test small enough for quick iteration.
@@ -169,7 +170,7 @@ int main(void) {
 
     if (mismatches == 0) {
         printf("\n>>> SUCCESS! All %d elements computed correctly on FPGA-GPU! <<<\n\n", NUM_ELEMENTS);
-        return 0;
+        return run_sibling_test("test_multiprocess_kernel");
     } else {
         printf("\n>>> FAILURE: %d mismatches found! <<<\n\n", mismatches);
         return 1;
