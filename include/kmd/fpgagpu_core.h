@@ -19,6 +19,7 @@
 #include <linux/scatterlist.h>
 #include "../uapi/fpgagpu_ioctl.h"
 
+#define FPGAGPU_VRAM_TOTAL_SIZE       (1024ULL * 1024ULL * 1024ULL) // 1GB DDR3
 #define FPGAGPU_KERNEL_STAGING_OFFSET 0x00010000 // BAR0 BRAM Staging Buffer for Dynamic Kernels (16KB)
 #define FPGAGPU_RING_OFFSET           0x00018000 // Direct BAR0 BRAM Ring Buffer Offset (32KB)
 #define FPGAGPU_CP_IRQ_OFFSET         0x00020000 // Host-to-PicoRV32 command IRQ register
@@ -64,8 +65,8 @@ struct fpgagpu_dispatch_packet {
  * Lock-Free Ring Buffer (Mapped directly into FPGA BRAM via BAR0)
  */
 struct fpgagpu_ring_buffer {
-    volatile u32 head; /* Updated by PicoRV32 (Consumer) */
-    volatile u32 tail; /* Updated by CPU Host (Producer) */
+    u32 head; /* Updated by PicoRV32 (Consumer) */
+    u32 tail; /* Updated by CPU Host (Producer) */
     u32 reserved[14];  /* 56 bytes padding to align cmds to 64 bytes */
     struct fpgagpu_dispatch_packet cmds[QUEUE_SIZE];
 };
