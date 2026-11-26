@@ -197,6 +197,7 @@ static int fpgagpu_probe(struct pci_dev *pdev, const struct pci_device_id *id)
     pci_set_drvdata(pdev, dev);
 
     spin_lock_init(&dev->global_lock);
+    mutex_init(&dev->dma_mutex);
     
     spin_lock_init(&dev->ctx_lock);
     INIT_LIST_HEAD(&dev->ctx_list);
@@ -329,6 +330,7 @@ static void fpgagpu_remove(struct pci_dev *pdev)
         if (dev->desc_ring) {
             dma_free_coherent(&pdev->dev, 8192 * sizeof(struct xdma_desc), dev->desc_ring, dev->desc_ring_dma_addr);
         }
+        mutex_destroy(&dev->dma_mutex);
 
         if (dev->dma_base) pci_iounmap(pdev, dev->dma_base);
         if (dev->csr_base) pci_iounmap(pdev, dev->csr_base);

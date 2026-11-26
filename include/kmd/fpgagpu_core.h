@@ -10,6 +10,7 @@
 #include <linux/wait.h>
 #include <linux/list.h>
 #include <linux/spinlock.h>
+#include <linux/mutex.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 #include <linux/mm.h>
@@ -108,6 +109,7 @@ struct fpgagpu_dev {
 
     struct fpgagpu_ring_buffer *ring; // Points to ring buffer in BRAM
     spinlock_t global_lock;           // Lock among multiple CPU producer threads
+    struct mutex dma_mutex;           // Mutex serializing DMA operations and buffer access
 
     struct list_head ctx_list;
     spinlock_t ctx_lock;
