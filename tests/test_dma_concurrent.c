@@ -13,9 +13,10 @@
 #include <time.h>
 #include <unistd.h>
 #include "../include/uapi/fpgagpu_ioctl.h"
+#include "test_dma_concurrent.h"
 
 /*
- * Manual destructive HIL regression. The unfixed driver shares DMA state
+ * Destructive HIL regression. The unfixed driver shares DMA state
  * across ioctl callers; this test may hang/crash the host or corrupt memory.
  * Use only a dedicated, idle test machine and sacrificial VRAM ranges.
  * No OpenCL/UMD allocator or command-ring operations are involved.
@@ -289,6 +290,30 @@ static int run_case(enum mode mode, unsigned rounds, size_t page)
     return 0;
 }
 
+static int run_selected(enum mode mode, unsigned rounds)
+{
+    if (rounds < 1 || rounds > 1000) {
+        fprintf(stderr, "Invalid concurrent DMA round count\n");
+        return 2;
+    }
+    long page = sysconf(_SC_PAGESIZE);
+    if (page < 4096 || page > 65536 || (page & (page - 1))) {
+        fprintf(stderr, "Unsupported host page size\n"); return 2;
+    }
+    fprintf(stderr, "WARNING: destructive concurrent DMA test; may crash the host.\n");
+    if ((mode == MODE_ALL || mode == MODE_H2C) && run_case(MODE_H2C, rounds, (size_t)page)) return 1;
+    if ((mode == MODE_ALL || mode == MODE_C2H) && run_case(MODE_C2H, rounds, (size_t)page)) return 1;
+    if ((mode == MODE_ALL || mode == MODE_MIXED) && run_case(MODE_MIXED, rounds, (size_t)page)) return 1;
+    puts("ALL CONCURRENT DMA TESTS PASSED (overlap not independently instrumented)");
+    return 0;
+}
+
+int test_dma_concurrent_all(unsigned rounds)
+{
+    return run_selected(MODE_ALL, rounds);
+}
+
+#ifndef FPGAGPU_DMA_CONCURRENT_EMBEDDED
 static void usage(const char *program)
 {
     fprintf(stderr, "Usage: %s --run [--mode all|h2c|c2h|mixed] [--rounds 1..1000]\n"
@@ -323,14 +348,6 @@ int main(int argc, char **argv)
         } else { usage(argv[0]); return 2; }
     }
     if (!run) { usage(argv[0]); return 2; }
-    long page = sysconf(_SC_PAGESIZE);
-    if (page < 4096 || page > 65536 || (page & (page - 1))) {
-        fprintf(stderr, "Unsupported host page size\n"); return 2;
-    }
-    fprintf(stderr, "WARNING: destructive concurrent DMA test; may crash the host.\n");
-    if ((mode == MODE_ALL || mode == MODE_H2C) && run_case(MODE_H2C, rounds, (size_t)page)) return 1;
-    if ((mode == MODE_ALL || mode == MODE_C2H) && run_case(MODE_C2H, rounds, (size_t)page)) return 1;
-    if ((mode == MODE_ALL || mode == MODE_MIXED) && run_case(MODE_MIXED, rounds, (size_t)page)) return 1;
-    puts("ALL CONCURRENT DMA TESTS PASSED (overlap not independently instrumented)");
-    return 0;
+    return run_selected(mode, rounds);
 }
+#endif

@@ -8,6 +8,7 @@
 #include <time.h>
 #include <sys/ioctl.h>
 #include "../include/uapi/fpgagpu_ioctl.h"
+#include "test_dma_concurrent.h"
 
 #define fpgagpu_DEVICE "/dev/fpgagpu0"
 
@@ -151,7 +152,12 @@ cleanup:
     return failed;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    int serial_only = argc == 2 && !strcmp(argv[1], "--serial-only");
+    if (argc != 1 && !serial_only) {
+        fprintf(stderr, "Usage: %s [--serial-only]\n", argv[0]);
+        return 2;
+    }
     printf("fpgagpu Core Driver IOCTL Verification Tool (/dev/fpgagpu0)\n");
 
     int fd = open(fpgagpu_DEVICE, O_RDWR);
@@ -216,12 +222,23 @@ int main(void) {
         printf("SUCCESS (Completed by PicoRV32!)\n");
     }
 
+    close(fd);
+
+    // Run only after the serial checks succeed, with no inherited device FD.
+    // Keep the existing HIL entry point and propagate any concurrent failure.
+    if (!failed && !serial_only) {
+        puts("[Phase 3] Testing concurrent DMA from independent processes...");
+        fflush(stdout);
+        failed += test_dma_concurrent_all(4) != 0;
+    } else if (serial_only) {
+        puts("[Phase 3] Concurrent DMA skipped (--serial-only)");
+    } else {
+        puts("[Phase 3] Concurrent DMA skipped after earlier failure");
+    }
     if (failed == 0) {
         printf("ALL TESTS PASSED\n");
     } else {
         printf("FAILED! %d TEST(S) FAILED\n", failed);
     }
-
-    close(fd);
     return failed ? 1 : 0;
 }

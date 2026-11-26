@@ -5,22 +5,31 @@
 - DMA preserves the Host buffer page offset and exact transfer length. Partial page pinning fails before hardware starts.
 - `test_dma` verifies short and cross-page transfers with Host and VRAM guards. Branch divergence checks input and output sentinel readback before dispatch.
 
-## Concurrent DMA regression (manual, destructive)
+## Concurrent DMA regression (destructive HIL test)
 
-The existing range test issues synchronous ioctls from one process. The
-new test_dma_concurrent is an opt-in HIL regression for the known
-device-global DMA state race. It does not fix the driver.
+The existing range test issues synchronous ioctls from one process.
+`test_dma` now runs the concurrent regression as Phase 3 after the serial
+DMA and ring-buffer checks succeed. It is a regression for the known
+device-global DMA state race, not a driver fix.
 
 WARNING: the current driver can corrupt host memory, hang or crash under
 concurrent DMA. Run only on a dedicated idle HIL host with recovery
 available, no other GPU users, and no valuable data in the test VRAM.
-Do not add this test to unattended CI/HIL or run on production systems.
+Never run on production systems. The normal HIL run must have external
+recovery available. A failure or crash is a test failure, not a pass.
 
-Build explicitly with:
+The normal `make` / `make -C tests` build includes both test binaries.
+After loading the existing driver, the usual HIL entry point is:
 
-    make -C tests test_dma_concurrent
+    sudo ./tests/test_dma
 
-After loading the existing driver, run deliberately:
+Phase 3 runs four rounds of each of the three direction combinations
+(24 worker DMA requests, plus serial setup/readback). It stops on the
+first failed pair. To isolate the original serial checks:
+
+    sudo ./tests/test_dma --serial-only
+
+The standalone binary still supports focused tests:
 
     sudo ./tests/test_dma_concurrent --run --mode h2c --rounds 1
 
