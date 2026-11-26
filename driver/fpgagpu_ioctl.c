@@ -19,6 +19,7 @@ long fpgagpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             u64 cur_ddr3;
             struct scatterlist *sg;
             int timeout;
+            int ret = 0;
 
             if (copy_from_user(&dma_param, (struct fpgagpu_dma_param __user *)arg, sizeof(dma_param))) {
                 return -EFAULT;
@@ -33,9 +34,22 @@ long fpgagpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
             if (dma_param.host_vaddr > (u64)ULONG_MAX - (dma_param.size - 1))
                 return -EINVAL;
+
+            if (mutex_lock_interruptible(&dev->dma_mutex))
+                return -ERESTARTSYS;
+
+            if (dma_param.ddr3_addr >= FPGAGPU_VRAM_TOTAL_SIZE || 
+                dma_param.ddr3_addr > (1024ULL * 1024ULL * 1024ULL) - dma_param.size) {
+                ret = -EINVAL;
+                goto out_unlock;
+            }
+
             page_offset = offset_in_page((unsigned long)dma_param.host_vaddr);
             num_pages = DIV_ROUND_UP(page_offset + dma_param.size, PAGE_SIZE);
-            if (num_pages > 8192) return -EINVAL;
+            if (num_pages > 8192) {
+                ret = -EINVAL;
+                goto out_unlock;
+            }
 
             if (dma_param.direction == fpgagpu_DMA_TO_DEVICE) {
                 chan_ctrl   = XDMA_H2C_CHAN0_CTRL;
@@ -54,7 +68,8 @@ long fpgagpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 dma_dir     = DMA_FROM_DEVICE;
                 gup_flags   = FOLL_WRITE;
             } else {
-                return -EINVAL;
+                ret = -EINVAL;
+                goto out_unlock;
             }
 
             // Pin user pages in RAM
@@ -62,20 +77,23 @@ long fpgagpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                                                         gup_flags, dev->pinned_pages);
             if (dev->num_pinned_pages < 0) {
                 pr_err("fpgagpu-Core: get_user_pages_fast failed: %d\n", dev->num_pinned_pages);
-                return dev->num_pinned_pages;
+                ret = dev->num_pinned_pages;
+                goto out_unlock;
             }
             if (dev->num_pinned_pages != num_pages) {
                 for (i = 0; i < dev->num_pinned_pages; i++)
                     put_page(dev->pinned_pages[i]);
                 dev->num_pinned_pages = 0;
-                return -EFAULT;
+                ret = -EFAULT;
+                goto out_unlock;
             }
 
             dev->sgl = kmalloc_array(dev->num_pinned_pages, sizeof(struct scatterlist), GFP_KERNEL);
             if (!dev->sgl) {
                 for (i = 0; i < dev->num_pinned_pages; i++) put_page(dev->pinned_pages[i]);
                 dev->num_pinned_pages = 0;
-                return -ENOMEM;
+                ret = -ENOMEM;
+                goto out_unlock;
             }
 
             sg_init_table(dev->sgl, dev->num_pinned_pages);
@@ -94,7 +112,8 @@ long fpgagpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 dev->sgl = NULL;
                 for (i = 0; i < dev->num_pinned_pages; i++) put_page(dev->pinned_pages[i]);
                 dev->num_pinned_pages = 0;
-                return -ENOMEM;
+                ret = -ENOMEM;
+                goto out_unlock;
             }
 
             // Build XDMA Descriptor Chain
@@ -148,9 +167,13 @@ long fpgagpu_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
             if (timeout == 0) {
                 pr_err("fpgagpu-Core: DMA transfer timed out!\n");
-                return -ETIMEDOUT;
+                ret = -ETIMEDOUT;
+                goto out_unlock;
             }
-            break;
+
+out_unlock:
+            mutex_unlock(&dev->dma_mutex);
+            return ret;
         }
         
         case fpgagpu_IOC_SUBMIT_CMD: {
